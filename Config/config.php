@@ -5,7 +5,7 @@ declare(strict_types=1);
 return [
     'name'        => 'Evolution Bundle',
     'description' => 'Mautic integration for Evolution API v2.x (WhatsApp messaging).',
-    'version'     => '2.0.0',
+    'version'     => '2.1.0',
     'author'      => 'Evolution Team',
 
     'routes' => [

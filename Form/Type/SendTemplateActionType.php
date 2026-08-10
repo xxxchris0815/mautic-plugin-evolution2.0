@@ -25,13 +25,31 @@ class SendTemplateActionType extends AbstractType
     public function buildForm(FormBuilderInterface $builder, array $options): void
     {
         $formData = is_array($options['data'] ?? null) ? $options['data'] : [];
-        $instanceChoices = $this->evolutionApiService->getInstanceChoices();
-        $defaultInstance = (string) ($formData['instance'] ?? $this->evolutionApiService->getConfiguredInstance());
+        // Templates require WhatsApp Cloud API instances only (no Baileys)
+        $instanceChoices = $this->evolutionApiService->getInstanceChoices(true);
+        $configured = $this->evolutionApiService->getConfiguredInstance();
+        $defaultInstance = (string) ($formData['instance'] ?? '');
+
         if ($defaultInstance !== '' && !in_array($defaultInstance, $instanceChoices, true)) {
-            $instanceChoices[$defaultInstance] = $defaultInstance;
+            // Keep previously saved value only if it is still a Cloud instance
+            if ($this->evolutionApiService->isCloudTemplateInstance($defaultInstance)) {
+                $instanceChoices[$defaultInstance] = $defaultInstance;
+            } else {
+                $defaultInstance = '';
+            }
         }
 
-        $templatesResult = $this->evolutionApiService->findTemplates($defaultInstance !== '' ? $defaultInstance : null, true);
+        if ($defaultInstance === '') {
+            if ($configured !== '' && in_array($configured, $instanceChoices, true)) {
+                $defaultInstance = $configured;
+            } elseif ($instanceChoices !== []) {
+                $defaultInstance = (string) reset($instanceChoices);
+            }
+        }
+
+        $templatesResult = ($defaultInstance !== '' && $this->evolutionApiService->isCloudTemplateInstance($defaultInstance))
+            ? $this->evolutionApiService->findTemplates($defaultInstance, true)
+            : ['success' => true, 'templates' => [], 'choices' => []];
         $templateChoices = $templatesResult['choices'] ?? [];
         $existingTemplate = (string) ($formData['template'] ?? '');
         if ($existingTemplate !== '' && !in_array($existingTemplate, $templateChoices, true)) {
@@ -57,23 +75,24 @@ class SendTemplateActionType extends AbstractType
 
         $builder
             ->add('instance', ChoiceType::class, [
-                'label' => 'mautic.evolution.campaign.action.instance',
+                'label' => 'mautic.evolution.campaign.action.instance.cloud',
                 'label_attr' => ['class' => 'control-label required'],
                 'attr' => [
                     'class' => 'form-control evolution-instance-select',
-                    'tooltip' => 'mautic.evolution.campaign.action.instance.tooltip',
+                    'tooltip' => 'mautic.evolution.campaign.action.instance.cloud.tooltip',
+                    'data-cloud-only' => '1',
                     'data-templates-url' => '/s/evolution/ajax/templates',
                 ],
                 'choices' => $instanceChoices,
                 'data' => $defaultInstance !== '' ? $defaultInstance : null,
-                'placeholder' => 'mautic.evolution.campaign.action.instance.placeholder',
+                'placeholder' => 'mautic.evolution.campaign.action.instance.cloud.placeholder',
                 'required' => true,
                 'constraints' => [
                     new Assert\NotBlank([
-                        'message' => 'mautic.evolution.campaign.action.instance.notblank',
+                        'message' => 'mautic.evolution.campaign.action.instance.cloud.notblank',
                     ]),
                 ],
-                'help' => 'mautic.evolution.campaign.action.instance.help',
+                'help' => 'mautic.evolution.campaign.action.instance.cloud.help',
             ])
             ->add('template', ChoiceType::class, [
                 'label' => 'mautic.evolution.campaign.action.template.select',

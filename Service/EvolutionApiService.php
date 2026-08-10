@@ -90,6 +90,20 @@ class EvolutionApiService
         array $customHeaders = [],
         ?string $instance = null
     ): array {
+        $resolvedInstance = $this->resolveInstance($instance);
+        if (!$this->isCloudTemplateInstance($resolvedInstance)) {
+            $errorMessage = sprintf(
+                'Instance "%s" is not a WhatsApp Cloud/Business instance. Meta templates require WHATSAPP-BUSINESS (Baileys is not supported).',
+                $resolvedInstance
+            );
+            if ($event instanceof CampaignExecutionEvent) {
+                $event->setFailed($errorMessage);
+            }
+            throw (new EvolutionDeliveryException($errorMessage))
+                ->setEndpoint('/message/sendTemplate/' . $resolvedInstance)
+                ->setContact($contact);
+        }
+
         $data = [
             'number' => $this->formatPhoneNumber($number),
             'name' => $templateName,
@@ -102,7 +116,7 @@ class EvolutionApiService
 
         return $this->makeRequest(
             'POST',
-            '/message/sendTemplate/' . $this->resolveInstance($instance),
+            '/message/sendTemplate/' . $resolvedInstance,
             $data,
             $contact,
             $event,
@@ -255,25 +269,42 @@ class EvolutionApiService
         return $this->templateHelper;
     }
 
+    public const INTEGRATION_WHATSAPP_BUSINESS = 'WHATSAPP-BUSINESS';
+    public const INTEGRATION_WHATSAPP_BAILEYS = 'WHATSAPP-BAILEYS';
+
     /**
      * Instance choices for forms: label => value
      *
+     * @param bool $cloudOnly When true, only WHATSAPP-BUSINESS instances (needed for sendTemplate)
+     *
      * @return array<string, string>
      */
-    public function getInstanceChoices(): array
+    public function getInstanceChoices(bool $cloudOnly = false): array
     {
         $result = $this->fetchInstances();
         $choices = [];
         foreach ($result['instances'] as $instance) {
-            $name = $instance['name'];
+            $name = (string) ($instance['name'] ?? '');
+            if ($name === '') {
+                continue;
+            }
+
+            $integration = $this->normalizeIntegrationType($instance['integration'] ?? null);
+            if ($cloudOnly && !$this->isWhatsAppBusinessIntegration($integration)) {
+                continue;
+            }
+
             $label = $name;
-            if (!empty($instance['status'])) {
+            if ($integration !== '') {
+                $label .= ' [' . $integration . ']';
+            } elseif (!empty($instance['status'])) {
                 $label .= ' [' . $instance['status'] . ']';
             }
             $choices[$label] = $name;
         }
 
-        if ($choices === []) {
+        // Fallback only for non-template forms; never invent a Baileys/default for cloud-only
+        if ($choices === [] && !$cloudOnly) {
             $default = $this->getConfiguredInstance();
             if ($default !== '') {
                 $choices[$default] = $default;
@@ -281,6 +312,52 @@ class EvolutionApiService
         }
 
         return $choices;
+    }
+
+    /**
+     * Whether an instance supports Meta/WhatsApp Cloud templates.
+     */
+    public function isCloudTemplateInstance(?string $instanceName): bool
+    {
+        $instanceName = trim((string) $instanceName);
+        if ($instanceName === '') {
+            return false;
+        }
+
+        $result = $this->fetchInstances();
+        foreach ($result['instances'] as $instance) {
+            if (($instance['name'] ?? '') !== $instanceName) {
+                continue;
+            }
+
+            return $this->isWhatsAppBusinessIntegration($instance['integration'] ?? null);
+        }
+
+        // Unknown instance metadata: deny for template sends (safer than allowing Baileys)
+        return false;
+    }
+
+    public function isWhatsAppBusinessIntegration(mixed $integration): bool
+    {
+        $normalized = $this->normalizeIntegrationType($integration);
+
+        return $normalized === self::INTEGRATION_WHATSAPP_BUSINESS
+            || $normalized === 'WHATSAPP_BUSINESS'
+            || $normalized === 'BUSINESS';
+    }
+
+    public function isWhatsAppBaileysIntegration(mixed $integration): bool
+    {
+        $normalized = $this->normalizeIntegrationType($integration);
+
+        return $normalized === self::INTEGRATION_WHATSAPP_BAILEYS
+            || $normalized === 'WHATSAPP_BAILEYS'
+            || $normalized === 'BAILEYS';
+    }
+
+    private function normalizeIntegrationType(mixed $integration): string
+    {
+        return strtoupper(trim((string) ($integration ?? '')));
     }
 
     /**

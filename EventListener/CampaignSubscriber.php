@@ -152,12 +152,21 @@ class CampaignSubscriber implements EventSubscriberInterface
                 $instance = $this->evolutionApiService->getConfiguredInstance();
             }
 
+            if (empty($instance) || !$this->evolutionApiService->isCloudTemplateInstance((string) $instance)) {
+                $event->setResult(false);
+                $event->setFailed(
+                    'Send Template requires a WhatsApp Cloud/Business instance (WHATSAPP-BUSINESS). Baileys instances are not supported.'
+                );
+
+                return;
+            }
+
             $result = $this->messageModel->sendWhatsAppTemplate(
                 $lead,
                 $templateName,
                 $language,
                 $variables,
-                !empty($instance) ? (string) $instance : null,
+                (string) $instance,
                 $phoneField,
                 $headers
             );

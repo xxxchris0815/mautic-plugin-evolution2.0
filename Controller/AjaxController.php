@@ -48,15 +48,25 @@ class AjaxController extends CommonController
         );
     }
 
-    public function instancesAction(): JsonResponse
+    public function instancesAction(Request $request): JsonResponse
     {
+        $cloudOnly = $request->query->getBoolean('cloudOnly')
+            || $request->query->getBoolean('cloud_only');
         $result = $this->evolutionApiService->fetchInstances();
+        $instances = $result['instances'] ?? [];
+        if ($cloudOnly) {
+            $instances = array_values(array_filter(
+                $instances,
+                fn (array $instance): bool => $this->evolutionApiService->isWhatsAppBusinessIntegration($instance['integration'] ?? null)
+            ));
+        }
 
         return new JsonResponse([
             'success' => $result['success'],
-            'instances' => $result['instances'],
-            'choices' => $this->evolutionApiService->getInstanceChoices(),
+            'instances' => $instances,
+            'choices' => $this->evolutionApiService->getInstanceChoices($cloudOnly),
             'default' => $this->evolutionApiService->getConfiguredInstance(),
+            'cloud_only' => $cloudOnly,
             'error' => $result['error'] ?? null,
         ]);
     }
@@ -66,6 +76,16 @@ class AjaxController extends CommonController
         $instance = $instance ?: (string) $request->query->get('instance', '');
         if ($instance === '') {
             $instance = $this->evolutionApiService->getConfiguredInstance();
+        }
+
+        if ($instance !== '' && !$this->evolutionApiService->isCloudTemplateInstance($instance)) {
+            return new JsonResponse([
+                'success' => false,
+                'instance' => $instance,
+                'choices' => [],
+                'templates' => [],
+                'error' => 'Templates are only available for WhatsApp Cloud/Business instances (WHATSAPP-BUSINESS). Baileys is not supported.',
+            ], 400);
         }
 
         $result = $this->evolutionApiService->findTemplates($instance, true);

@@ -1,0 +1,73 @@
+services:
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: mautic
+      MYSQL_USER: mautic
+      MYSQL_PASSWORD: mautic
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-umautic", "-pmautic"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  evolution_mock:
+    image: python:3.12-alpine
+    command: ["python", "/app/server.py"]
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./mock-evolution/server.py:/app/server.py:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mautic_web:
+    image: mautic/mautic:7-apache
+    ports:
+      - "8080:80"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./mautic/config:/var/www/html/config:z
+      - ./mautic/logs:/var/www/html/var/logs:z
+      - ./mautic/media/files:/var/www/html/docroot/media/files:z
+      - ./mautic/media/images:/var/www/html/docroot/media/images:z
+      # Mount plugin source for live testing
+      - ../../:/var/www/html/docroot/plugins/MauticEvolutionBundle:z
+    environment:
+      DOCKER_MAUTIC_ROLE: mautic_web
+      DOCKER_MAUTIC_LOAD_TEST_DATA: "false"
+      # Bridge networking between containers is unreliable in this environment;
+      # reach MySQL via published host port.
+      MAUTIC_DB_HOST: host.docker.internal
+      MAUTIC_DB_PORT: 3306
+      MAUTIC_DB_DATABASE: mautic
+      MAUTIC_DB_USER: mautic
+      MAUTIC_DB_PASSWORD: mautic
+      MAUTIC_MESSENGER_DSN_EMAIL: doctrine://default
+      MAUTIC_MESSENGER_DSN_HIT: doctrine://default
+      MAUTIC_URL: http://localhost:8080
+      MAUTIC_ADMIN_EMAIL: admin@example.com
+      MAUTIC_ADMIN_USERNAME: admin
+      MAUTIC_ADMIN_PASSWORD: MauticAdmin123!
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost/"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+
+volumes:
+  mysql-data:

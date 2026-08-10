@@ -1,0 +1,8 @@
+mautic/config/*
+!mautic/config/.gitkeep
+mautic/logs/*
+!mautic/logs/.gitkeep
+mautic/media/files/*
+!mautic/media/files/.gitkeep
+mautic/media/images/*
+!mautic/media/images/.gitkeep

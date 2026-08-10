@@ -75,17 +75,21 @@ class WebhookController extends CommonController
                 ], Response::HTTP_BAD_REQUEST);
             }
 
-            // Valida estrutura básica do payload
-            if (!isset($payload['event']) || !isset($payload['data'])) {
-                $this->logger->warning('Webhook com estrutura inválida', ['payload' => $payload]);
+            // Basic payload validation (Evolution v2 always sends event + instance)
+            if (!isset($payload['event'])) {
+                $this->logger->warning('Webhook with invalid structure', ['payload' => $payload]);
 
                 return new JsonResponse([
                     'status' => 'error',
-                    'message' => 'Estrutura de dados inválida'
+                    'message' => 'Invalid payload structure',
                 ], Response::HTTP_BAD_REQUEST);
             }
 
-            // Processa o webhook
+            // data may be absent for some lifecycle events; normalize to array
+            if (!isset($payload['data'])) {
+                $payload['data'] = [];
+            }
+
             $result = $this->webhookService->processWebhook($payload);
 
             if ($result['success']) {

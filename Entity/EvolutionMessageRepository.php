@@ -60,6 +60,14 @@ class EvolutionMessageRepository extends CommonRepository
     }
 
     /**
+     * Alias for findByEvolutionMessageId
+     */
+    public function findByMessageId(string $messageId): ?EvolutionMessage
+    {
+        return $this->findByEvolutionMessageId($messageId);
+    }
+
+    /**
      * Conta mensagens por status
      */
     public function countByStatus(string $status): int

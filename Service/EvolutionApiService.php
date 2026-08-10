@@ -4,28 +4,27 @@ declare(strict_types=1);
 
 namespace MauticPlugin\MauticEvolutionBundle\Service;
 
+use Doctrine\ORM\EntityManagerInterface;
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
-use Mautic\CoreBundle\Helper\CoreParametersHelper;
-use Mautic\PluginBundle\Helper\IntegrationHelper;
-use MauticPlugin\MauticEvolutionBundle\Integration\MauticEvolutionIntegration;
-use Psr\Log\LoggerInterface;
-use Mautic\LeadBundle\Entity\LeadEventLog;
-use Mautic\LeadBundle\Entity\Lead;
-use Mautic\CoreBundle\Helper\UserHelper;
-use Doctrine\ORM\EntityManagerInterface;
+use GuzzleHttp\Exception\RequestException;
 use Mautic\CampaignBundle\Event\CampaignExecutionEvent;
-use MauticPlugin\MauticEvolutionBundle\Entity\EvolutionMessage;
+use Mautic\CoreBundle\Helper\UserHelper;
+use Mautic\LeadBundle\Entity\Lead;
+use Mautic\LeadBundle\Entity\LeadEventLog;
+use Mautic\PluginBundle\Helper\IntegrationHelper;
+use MauticPlugin\MauticEvolutionBundle\Exception\EvolutionApiException;
+use MauticPlugin\MauticEvolutionBundle\Exception\EvolutionDeliveryException;
+use Psr\Log\LoggerInterface;
 
 /**
- * Class EvolutionApiService
- * 
- * Serviço para comunicação com a Evolution API
+ * Client for Evolution API v2.x
+ *
+ * @see https://github.com/evolution-foundation/evolution-api
  */
 class EvolutionApiService
 {
     private Client $httpClient;
-    private CoreParametersHelper $coreParametersHelper;
     private LoggerInterface $logger;
     private IntegrationHelper $integrationHelper;
     private UserHelper $userHelper;
@@ -46,37 +45,48 @@ class EvolutionApiService
     }
 
     /**
-     * Envia mensagem de texto via Evolution API
+     * Send a plain text message via Evolution API v2
+     * POST /message/sendText/{instance}
      */
     public function sendTextMessage(string $number, string $message, Lead $contact = null, CampaignExecutionEvent $event = null, array $customHeaders = [], array $metadata = []): array
     {
         $data = $this->buildTextPayload($number, $message, $metadata);
 
-        return $this->makeRequest('POST', '/message/sendText/' . $this->getInstance(), $data, $contact, $event, $customHeaders);
+        return $this->makeRequest('POST', '/message/sendText/' . $this->getInstance(), $data, $contact, $event, $customHeaders, true);
     }
 
     /**
-     * Envia mensagem de texto with balancing via Evolution API
+     * Legacy / custom balancing endpoint (not part of stock Evolution API v2).
+     * Falls back to sendText when balancing is unavailable.
      */
     public function sendTextWithBalancing(string $number, string $message, Lead $contact = null, CampaignExecutionEvent $event = null, array $customHeaders = [], array $metadata = []): array
     {
         $data = $this->buildTextPayload($number, $message, $metadata);
 
-        return $this->makeRequest('POST', '/message/sendTextWithBalancing/', $data, $contact, $event, $customHeaders);
+        try {
+            return $this->makeRequest('POST', '/message/sendTextWithBalancing/', $data, $contact, $event, $customHeaders, true);
+        } catch (EvolutionDeliveryException $e) {
+            if ($e->getStatusCode() === 404) {
+                $this->logger->warning('sendTextWithBalancing unavailable, falling back to sendText/{instance}');
+
+                return $this->sendTextMessage($number, $message, $contact, $event, $customHeaders, $metadata);
+            }
+
+            throw $e;
+        }
     }
 
     /**
-     * Envia texto utilizando balanceamento por grupo (usa alias do grupo)
+     * Custom group balancing endpoint (optional extension). Falls back to sendText on 404.
      */
     public function sendTextWithGroupBalancing(string $alias, string $number, string $text, array $options = [], Lead $contact = null, CampaignExecutionEvent $event = null, array $customHeaders = [], array $metadata = []): array
     {
         $data = [
             'alias' => $alias,
-            'number' => $number,
+            'number' => $this->formatPhoneNumber($number),
             'text' => $text,
         ];
 
-        // Campos opcionais do payload
         if (isset($options['delay'])) {
             $data['delay'] = (int) $options['delay'];
         }
@@ -86,33 +96,53 @@ class EvolutionApiService
         if (isset($options['mentioned']) && is_array($options['mentioned'])) {
             $data['mentioned'] = $options['mentioned'];
         }
-
-        // Metadados opcionais
         if (!empty($metadata)) {
             $data['metadata'] = $this->sanitizeKeyValueMap($metadata);
         }
-        return $this->makeRequest('POST', '/message/sendTextWithGroupBalancing', $data, $contact, $event, $customHeaders);
+
+        try {
+            return $this->makeRequest('POST', '/message/sendTextWithGroupBalancing', $data, $contact, $event, $customHeaders, true);
+        } catch (EvolutionDeliveryException $e) {
+            if ($e->getStatusCode() === 404) {
+                $this->logger->warning('sendTextWithGroupBalancing unavailable, falling back to sendText/{instance}', [
+                    'alias' => $alias,
+                ]);
+
+                return $this->sendTextMessage($number, $text, $contact, $event, $customHeaders, $metadata);
+            }
+
+            throw $e;
+        }
     }
 
     /**
-     * Obtém lista de grupos da Evolution API e filtra apenas habilitados
-     * @return array{success: bool, groups: array<int, array{ id: string, name: string, alias: string, enabled: bool }>, error?: string}
+     * Optional instance-group listing (custom extension). Returns empty list on 404.
+     *
+     * @return array{success: bool, groups: array<int, array{id: string, name: string, alias: string, enabled: bool}>, error?: string}
      */
     public function getInstanceGroups(): array
     {
-        $result = $this->makeRequest('GET', '/instance-group');
+        try {
+            $result = $this->makeRequest('GET', '/instance-group', [], null, null, [], false);
+        } catch (EvolutionApiException|EvolutionDeliveryException $e) {
+            return [
+                'success' => false,
+                'groups' => [],
+                'error' => $e->getMessage(),
+            ];
+        }
 
         if (!$result['success']) {
             return [
                 'success' => false,
                 'groups' => [],
-                'error' => $result['error'] ?? 'Falha ao obter grupos da Evolution API',
+                'error' => $result['error'] ?? 'Failed to fetch instance groups',
             ];
         }
 
         $groups = [];
         foreach (($result['data'] ?? []) as $item) {
-            if (!isset($item['enabled']) || $item['enabled'] !== true) {
+            if (!is_array($item) || !isset($item['enabled']) || $item['enabled'] !== true) {
                 continue;
             }
             $groups[] = [
@@ -123,11 +153,6 @@ class EvolutionApiService
             ];
         }
 
-        // Log para depuração
-        $this->logger->info('Evolution API - getInstanceGroups', [
-            'count' => count($groups),
-        ]);
-
         return [
             'success' => true,
             'groups' => $groups,
@@ -135,57 +160,93 @@ class EvolutionApiService
     }
 
     /**
-     * Envia mensagem de mídia via Evolution API
+     * Send media via Evolution API v2
+     * POST /message/sendMedia/{instance}
+     *
+     * v2 payload: { number, mediatype, media, caption?, fileName?, mimetype? }
      */
-    public function sendMediaMessage(string $number, string $mediaUrl, string $caption = '', Lead $contact = null, CampaignExecutionEvent $event = null): array
-    {
+    public function sendMediaMessage(
+        string $number,
+        string $mediaUrl,
+        string $caption = '',
+        Lead $contact = null,
+        CampaignExecutionEvent $event = null,
+        string $mediaType = 'image',
+        ?string $fileName = null,
+        ?string $mimetype = null
+    ): array {
+        $allowedTypes = ['image', 'document', 'video', 'audio'];
+        if (!in_array($mediaType, $allowedTypes, true)) {
+            $mediaType = 'image';
+        }
+
         $data = [
-            'number' => $number,
-            'mediaMessage' => [
-                'mediaUrl' => $mediaUrl,
-                'caption' => $caption,
-            ],
+            'number' => $this->formatPhoneNumber($number),
+            'mediatype' => $mediaType,
+            'media' => $mediaUrl,
         ];
 
-        return $this->makeRequest('POST', '/message/sendMedia/' . $this->getInstance(), $data, $contact, $event);
+        if ($caption !== '') {
+            $data['caption'] = $caption;
+        }
+        if ($fileName !== null && $fileName !== '') {
+            $data['fileName'] = $fileName;
+        }
+        if ($mimetype !== null && $mimetype !== '') {
+            $data['mimetype'] = $mimetype;
+        }
+
+        return $this->makeRequest('POST', '/message/sendMedia/' . $this->getInstance(), $data, $contact, $event, [], true);
     }
 
     /**
-     * Define webhook para receber mensagens
+     * Configure webhook for the instance (Evolution API v2)
+     * POST /webhook/set/{instance}
      */
     public function setWebhook(string $webhookUrl, Lead $contact = null, CampaignExecutionEvent $event = null): array
     {
         $data = [
-            'webhook' => $webhookUrl,
-            'events' => [
-                'APPLICATION_STARTUP',
-                'QRCODE_UPDATED',
-                'MESSAGES_UPSERT',
-                'MESSAGES_UPDATE',
-                'SEND_MESSAGE',
+            'webhook' => [
+                'enabled' => true,
+                'url' => $webhookUrl,
+                'byEvents' => false,
+                'base64' => false,
+                'events' => [
+                    'APPLICATION_STARTUP',
+                    'QRCODE_UPDATED',
+                    'CONNECTION_UPDATE',
+                    'MESSAGES_UPSERT',
+                    'MESSAGES_UPDATE',
+                    'MESSAGES_DELETE',
+                    'SEND_MESSAGE',
+                ],
             ],
         ];
 
-        return $this->makeRequest('POST', '/webhook/set/' . $this->getInstance(), $data, $contact, $event);
+        return $this->makeRequest('POST', '/webhook/set/' . $this->getInstance(), $data, $contact, $event, [], true);
     }
 
     /**
-     * Obtém mensagens de uma conversa
+     * Find messages in a chat
+     * POST /chat/findMessages/{instance}
      */
     public function getMessages(string $remoteJid, int $limit = 20, Lead $contact = null, CampaignExecutionEvent $event = null): array
     {
         $data = [
             'where' => [
-                'remoteJid' => $remoteJid,
+                'key' => [
+                    'remoteJid' => $remoteJid,
+                ],
             ],
             'limit' => $limit,
         ];
 
-        return $this->makeRequest('POST', '/chat/findMessages/' . $this->getInstance(), $data, $contact, $event);
+        return $this->makeRequest('POST', '/chat/findMessages/' . $this->getInstance(), $data, $contact, $event, [], false);
     }
 
     /**
-     * Marca mensagem como lida
+     * Mark message as read
+     * POST /chat/markMessageAsRead/{instance}
      */
     public function markAsRead(string $remoteJid, string $messageId, Lead $contact = null, CampaignExecutionEvent $event = null): array
     {
@@ -193,85 +254,100 @@ class EvolutionApiService
             'readMessages' => [
                 [
                     'remoteJid' => $remoteJid,
+                    'fromMe' => false,
                     'id' => $messageId,
                 ],
             ],
         ];
 
-        return $this->makeRequest('POST', '/chat/markMessageAsRead/' . $this->getInstance(), $data, $contact, $event);
+        return $this->makeRequest('POST', '/chat/markMessageAsRead/' . $this->getInstance(), $data, $contact, $event, [], false);
     }
 
     /**
-     * Verifica se um número é WhatsApp
+     * Check whether numbers exist on WhatsApp
+     * POST /chat/whatsappNumbers/{instance}
      */
     public function checkWhatsAppNumber(string $number, Lead $contact = null, CampaignExecutionEvent $event = null): array
     {
-        // Sanitiza/normaliza número para formato aceito pela API
         $normalized = $this->formatPhoneNumber($number);
         $data = [
             'numbers' => [$normalized],
         ];
 
-        $instance = $this->getInstance();
-        $attempts = [
-            // Sem instância na rota
-            '/chat/whatsappNumbers',
-            // Com instância em path
-            '/chat/whatsappNumbers/' . $instance,
-            // Com instância em query param
-            '/chat/whatsappNumbers?instance=' . urlencode($instance),
-            // Variação de rota
-            '/chat/checkWhatsappNumbers/' . $instance,
-        ];
+        $endpoint = '/chat/whatsappNumbers/' . $this->getInstance();
 
-        $lastResult = null;
-        foreach ($attempts as $endpoint) {
-            $this->logger->info('Evolution API - checkWhatsAppNumber attempt', [
-                'endpoint' => $endpoint,
-                'numbers' => $data['numbers'],
-            ]);
-
-            $result = $this->makeRequest('POST', $endpoint, $data, $contact, $event);
-            $lastResult = $result;
-            if (isset($result['success']) && $result['success'] === true) {
-                return $result;
+        try {
+            $result = $this->makeRequest('POST', $endpoint, $data, $contact, $event, [], false);
+            if (!empty($result['data']) && is_array($result['data'])) {
+                $first = $result['data'][0] ?? null;
+                if (is_array($first) && array_key_exists('exists', $first)) {
+                    $result['exists'] = (bool) $first['exists'];
+                }
             }
 
-            // Se não for 404, encerra tentativas
-            if (isset($result['status_code']) && (int) $result['status_code'] !== 404) {
-                break;
-            }
+            return $result;
+        } catch (EvolutionApiException|EvolutionDeliveryException $e) {
+            return [
+                'success' => false,
+                'error' => $e->getMessage(),
+                'status_code' => $e->getStatusCode(),
+            ];
         }
-
-        // Retorna último resultado ou erro padrão
-        return $lastResult ?? [
-            'success' => false,
-            'error' => 'WhatsApp check failed for all endpoints',
-            'status_code' => 404,
-        ];
     }
 
     /**
-     * Faz requisição para a Evolution API
+     * Perform an HTTP request against Evolution API v2.
+     *
+     * @param bool $throwOnError When true, throws EvolutionDeliveryException on HTTP/JSON errors
+     *
+     * @throws EvolutionApiException
+     * @throws EvolutionDeliveryException
      */
-    private function makeRequest(string $method, string $endpoint, array $data = [], Lead $contact = null, CampaignExecutionEvent $event = null, array $customHeaders = []): array
-    {
+    private function makeRequest(
+        string $method,
+        string $endpoint,
+        array $data = [],
+        Lead $contact = null,
+        CampaignExecutionEvent $event = null,
+        array $customHeaders = [],
+        bool $throwOnError = true
+    ): array {
         $apiUrl = $this->getApiUrl();
         $apiKey = $this->getApiKey();
 
         if (empty($apiUrl) || empty($apiKey)) {
-            $this->logger->error('Evolution API não configurada corretamente', [
+            $errorMessage = 'Evolution API is not configured correctly (URL / API key missing)';
+            $this->logger->error($errorMessage, [
                 'api_url' => $apiUrl,
-                'api_key' => $apiKey,
+                'has_api_key' => !empty($apiKey),
             ]);
 
-            $errorMessage = 'Evolution API não configurada corretamente';
-            
-            // Registra falha no evento de campanha se disponível
             if ($event instanceof CampaignExecutionEvent) {
                 $event->setFailed($errorMessage);
             }
-            
+
+            $exception = new EvolutionApiException($errorMessage);
+            if ($throwOnError) {
+                throw $exception;
+            }
+
+            return [
+                'success' => false,
+                'error' => $errorMessage,
+            ];
+        }
+
+        $instance = $this->getInstance();
+        if ($instance === '') {
+            $errorMessage = 'Evolution API instance name is not configured';
+            if ($event instanceof CampaignExecutionEvent) {
+                $event->setFailed($errorMessage);
+            }
+            $exception = new EvolutionApiException($errorMessage);
+            if ($throwOnError) {
+                throw $exception;
+            }
+
             return [
                 'success' => false,
                 'error' => $errorMessage,
@@ -283,7 +359,6 @@ class EvolutionApiService
             'Content-Type' => 'application/json',
             'apikey' => $apiKey,
         ];
-        // Merge custom headers (without removing required defaults)
         foreach ($customHeaders as $hKey => $hVal) {
             if (is_string($hKey) && $hKey !== '') {
                 $headers[$hKey] = (string) $hVal;
@@ -294,16 +369,15 @@ class EvolutionApiService
             $this->logger->info('Evolution API Request', [
                 'method' => $method,
                 'endpoint' => $endpoint,
-                'data' => $data,
-                'api_url' => $apiUrl,
-                'endpoint' => $endpoint,
                 'full_url' => $url,
-                'integration_settings' => $this->getIntegrationSettings(),
+                'instance' => $instance,
+                'data' => $data,
             ]);
 
             $options = [
                 'headers' => $headers,
                 'timeout' => $this->getTimeout(),
+                'http_errors' => false,
             ];
 
             if (!empty($data)) {
@@ -311,106 +385,190 @@ class EvolutionApiService
             }
 
             $response = $this->httpClient->request($method, $url, $options);
-            $responseData = json_decode($response->getBody()->getContents(), true);
+            $statusCode = $response->getStatusCode();
+            $rawBody = (string) $response->getBody();
+            $responseData = json_decode($rawBody, true);
+            if (!is_array($responseData)) {
+                $responseData = $rawBody !== '' ? ['raw' => $rawBody] : [];
+            }
 
+            $isSuccessStatus = in_array($statusCode, [200, 201], true)
+                || ($statusCode >= 200 && $statusCode < 300);
 
-            // Verifica se o status da resposta é 2xx (sucesso)
-            if ($response->getStatusCode() >= 200 && $response->getStatusCode() < 300) {
+            $jsonError = $this->extractJsonError($responseData, $statusCode);
+
+            if ($isSuccessStatus && $jsonError === null) {
                 $result = [
                     'success' => true,
-                    'status_code' => $response->getStatusCode(),
+                    'status_code' => $statusCode,
                     'data' => $responseData,
                 ];
 
-                // Log de sucesso no timeline do contato quando aplicável
                 if ($contact instanceof Lead) {
                     $action = $this->getActionFromEndpoint($endpoint);
-                    if (in_array($action, ['Send Text Message', 'Send Media Message', 'Send Text With Group Balancing'])) {
+                    if (in_array($action, ['Send Text Message', 'Send Media Message', 'Send Text With Group Balancing'], true)) {
                         $details = [
                             'action' => $action,
                             'status' => 'sent',
                             'timestamp' => new \DateTime(),
                             'request' => $data,
                             'response' => $responseData,
-                            'messageId' => $responseData['key']['id'] ?? ($responseData['data']['key']['id'] ?? null),
-                            'phone' => $data['number'] ?? ($data['phoneNumber'] ?? null),
-                            'template' => $data['template'] ?? ($data['mediaMessage']['caption'] ?? null),
+                            'messageId' => $this->extractMessageId($responseData),
+                            'phone' => $data['number'] ?? null,
+                            'template' => $data['caption'] ?? ($data['text'] ?? null),
                         ];
                         $this->logSuccessEvent($contact, $action, $details);
                     }
                 }
 
                 return $result;
-            } 
+            }
 
-            // Exceção personalizada para erro HTTP (status 4xx ou 5xx)
+            $errorMessage = $jsonError ?? sprintf('Evolution API HTTP %d', $statusCode);
             $errorDetails = [
                 'method' => $method,
                 'endpoint' => $endpoint,
-                'data' => (string) $response->getBody(),
-                'status_code' => $response->getStatusCode()
+                'status_code' => $statusCode,
+                'response' => $responseData,
             ];
-            
-            // Caso o código de status não seja 2xx, retorna erro estruturado (sem lançar exceção)
-            if ((int) $response->getStatusCode() === 404) {
+
+            if ($statusCode === 404) {
                 $this->logger->warning('Evolution API HTTP 404', $errorDetails);
             } else {
-                $this->logger->error('Evolution API HTTP error', $errorDetails);
+                $this->logger->error('Evolution API HTTP/JSON error', $errorDetails);
             }
-            return [
-                'success' => false,
-                'error' => 'HTTP error',
-                'status_code' => $response->getStatusCode(),
-                'response' => $errorDetails['data'],
-            ];
-            
-        } catch (GuzzleException $e) {
-            $errorMessage = $e->getMessage();
-            $context = [
-                'method' => $method,
-                'endpoint' => $endpoint,
-                'data' => $data,
-                'status_code' => $e->getCode(),
-            ];
 
-            $this->logger->error('Evolution API Error', $context);
-
-            // Registra falha no evento de campanha se disponível
             if ($event instanceof CampaignExecutionEvent) {
                 $event->setFailed($errorMessage);
-                
-                // Adiciona metadata detalhada sobre a falha
                 $log = $event->getLogEntry();
                 if ($log) {
                     $log->appendToMetadata([
                         'failed' => 1,
                         'reason' => $errorMessage,
-                        'error_details' => [
-                            'endpoint' => $endpoint,
-                            'method' => $method,
-                            'status_code' => $e->getCode(),
-                            'context' => $context,
-                        ],
+                        'error_details' => $errorDetails,
                     ]);
                 }
             }
 
-            // Registra evento de falha no timeline do contato se disponível
             if ($contact instanceof Lead) {
-                $action = $this->getActionFromEndpoint($endpoint);
-                $this->logFailureEvent($contact, $action, $errorMessage, $context);
+                $this->logFailureEvent($contact, $this->getActionFromEndpoint($endpoint), $errorMessage, $errorDetails);
+            }
+
+            $exception = (new EvolutionDeliveryException($errorMessage, $statusCode))
+                ->setStatusCode($statusCode)
+                ->setResponseBody(is_array($responseData) ? $responseData : null)
+                ->setEndpoint($endpoint)
+                ->setContact($contact);
+
+            if ($throwOnError) {
+                throw $exception;
             }
 
             return [
                 'success' => false,
                 'error' => $errorMessage,
-                'status_code' => $e->getCode(),
+                'status_code' => $statusCode,
+                'response' => $responseData,
+            ];
+        } catch (EvolutionDeliveryException|EvolutionApiException $e) {
+            throw $e;
+        } catch (GuzzleException $e) {
+            $statusCode = $e instanceof RequestException && $e->hasResponse()
+                ? $e->getResponse()->getStatusCode()
+                : (int) $e->getCode();
+            $errorMessage = $e->getMessage();
+            $context = [
+                'method' => $method,
+                'endpoint' => $endpoint,
+                'data' => $data,
+                'status_code' => $statusCode,
+            ];
+
+            $this->logger->error('Evolution API Error', $context);
+
+            if ($event instanceof CampaignExecutionEvent) {
+                $event->setFailed($errorMessage);
+                $log = $event->getLogEntry();
+                if ($log) {
+                    $log->appendToMetadata([
+                        'failed' => 1,
+                        'reason' => $errorMessage,
+                        'error_details' => $context,
+                    ]);
+                }
+            }
+
+            if ($contact instanceof Lead) {
+                $this->logFailureEvent($contact, $this->getActionFromEndpoint($endpoint), $errorMessage, $context);
+            }
+
+            $exception = (new EvolutionDeliveryException($errorMessage, $statusCode, $e))
+                ->setStatusCode($statusCode > 0 ? $statusCode : null)
+                ->setEndpoint($endpoint)
+                ->setContact($contact);
+
+            if ($throwOnError) {
+                throw $exception;
+            }
+
+            return [
+                'success' => false,
+                'error' => $errorMessage,
+                'status_code' => $statusCode,
             ];
         }
     }
 
     /**
-     * Constrói payload para envio de texto, incluindo metadata
+     * Detect error payloads even when HTTP status is misleading.
+     */
+    private function extractJsonError(array $responseData, int $statusCode): ?string
+    {
+        if (isset($responseData['status']) && is_numeric($responseData['status'])) {
+            $payloadStatus = (int) $responseData['status'];
+            if ($payloadStatus >= 400) {
+                return $this->stringifyError($responseData) ?? sprintf('Evolution API status %d', $payloadStatus);
+            }
+        }
+
+        if ($statusCode >= 400 && isset($responseData['error']) && $responseData['error'] !== '' && $responseData['error'] !== null) {
+            return $this->stringifyError($responseData);
+        }
+
+        if (isset($responseData['success']) && $responseData['success'] === false) {
+            return $this->stringifyError($responseData) ?? 'Evolution API reported success=false';
+        }
+
+        return null;
+    }
+
+    private function stringifyError(array $responseData): ?string
+    {
+        if (isset($responseData['error'])) {
+            if (is_string($responseData['error'])) {
+                return $responseData['error'];
+            }
+            if (is_array($responseData['error'])) {
+                if (isset($responseData['error']['message']) && is_string($responseData['error']['message'])) {
+                    return $responseData['error']['message'];
+                }
+
+                return json_encode($responseData['error'], JSON_UNESCAPED_UNICODE) ?: null;
+            }
+        }
+
+        if (isset($responseData['message']) && is_string($responseData['message'])) {
+            return $responseData['message'];
+        }
+
+        if (isset($responseData['response']['message']) && is_string($responseData['response']['message'])) {
+            return $responseData['response']['message'];
+        }
+
+        return null;
+    }
+
+    /**
      * @return array{number: string, text: string, metadata?: array<string, mixed>}
      */
     public function buildTextPayload(string $number, string $text, array $metadata = []): array
@@ -424,23 +582,18 @@ class EvolutionApiService
             $payload['metadata'] = $this->sanitizeKeyValueMap($metadata);
         }
 
-        // Log para depuração do payload
-        $this->logger->info('Evolution API - Payload construído', [
-            'payload_preview' => [
-                'number' => $payload['number'],
-                'text_len' => strlen($payload['text'] ?? ''),
-                'has_metadata' => isset($payload['metadata']) && is_array($payload['metadata']) && count($payload['metadata']) > 0,
-                'metadata_keys' => isset($payload['metadata']) ? array_keys($payload['metadata']) : [],
-            ],
+        $this->logger->info('Evolution API - Payload built', [
+            'number' => $payload['number'],
+            'text_len' => strlen($payload['text'] ?? ''),
+            'has_metadata' => !empty($payload['metadata']),
         ]);
 
         return $payload;
     }
 
     /**
-     * Sanitiza e tipa valores para mapa chave-valor do payload/headers
-     * Garante chaves string e valores escalares coerentes (bool/int/float/null/string)
      * @param array<string,mixed> $map
+     *
      * @return array<string,mixed>
      */
     private function sanitizeKeyValueMap(array $map): array
@@ -452,16 +605,10 @@ class EvolutionApiService
             }
             $result[trim($key)] = $this->castScalar($value);
         }
+
         return $result;
     }
 
-    /**
-     * Converte string para tipo escalar apropriado
-     * - "true"/"false" -> bool
-     * - números -> int/float
-     * - "null" -> null
-     * - JSON objects/arrays -> mantém string (compatibilidade) a menos que parsing seja estritamente necessário
-     */
     private function castScalar(mixed $value): mixed
     {
         if (is_bool($value) || is_int($value) || is_float($value) || $value === null) {
@@ -478,192 +625,146 @@ class EvolutionApiService
             if (strcasecmp($trim, 'null') === 0) {
                 return null;
             }
-            // numérico
             if (is_numeric($trim)) {
-                // int vs float
                 return strpos($trim, '.') !== false ? (float) $trim : (int) $trim;
             }
-            return $value; // mantém string
+
+            return $value;
         }
-        // arrays/objects: mantém como está (API pode aceitar)
+
         return $value;
     }
 
-    /**
-     * Extrai a ação do endpoint para logging
-     */
+    private function extractMessageId(array $responseData): ?string
+    {
+        if (isset($responseData['key']['id']) && is_string($responseData['key']['id'])) {
+            return $responseData['key']['id'];
+        }
+        if (isset($responseData['data']['key']['id']) && is_string($responseData['data']['key']['id'])) {
+            return $responseData['data']['key']['id'];
+        }
+
+        return null;
+    }
+
     private function getActionFromEndpoint(string $endpoint): string
     {
-        if (strpos($endpoint, '/message/sendText/') !== false) {
-            return 'Send Text Message';
-        } elseif (strpos($endpoint, '/message/sendMedia/') !== false) {
-            return 'Send Media Message';
-        } elseif (strpos($endpoint, '/webhook/set/') !== false) {
-            return 'Set Webhook';
-        } elseif (strpos($endpoint, '/chat/findMessages/') !== false) {
-            return 'Get Messages';
-        } elseif (strpos($endpoint, '/chat/markMessageAsRead/') !== false) {
-            return 'Mark as Read';
-        } elseif (strpos($endpoint, '/chat/whatsappNumbers/') !== false) {
-            return 'Check WhatsApp Number';
-        } elseif (strpos($endpoint, '/message/sendTextWithGroupBalancing') !== false) {
+        if (str_contains($endpoint, '/message/sendTextWithGroupBalancing')) {
             return 'Send Text With Group Balancing';
-        } else {
-            return 'API Request';
         }
-    }
-
-    /**
-     * Obtém headers para requisições
-     */
-    private function getHeaders(): array
-    {
-        return [
-            'Content-Type' => 'application/json',
-            'apikey' => $this->getApiKey(),
-        ];
-    }
-
-    /**
-     * Formata número de telefone
-     */
-    private function formatPhoneNumber(string $phoneNumber): string
-    {
-        // Remove caracteres não numéricos
-        $phoneNumber = preg_replace('/[^0-9]/', '', $phoneNumber);
-        
-        // Adiciona código do país se não tiver
-        if (strlen($phoneNumber) === 11 && substr($phoneNumber, 0, 1) !== '55') {
-            $phoneNumber = '55' . $phoneNumber;
+        if (str_contains($endpoint, '/message/sendText')) {
+            return 'Send Text Message';
+        }
+        if (str_contains($endpoint, '/message/sendMedia')) {
+            return 'Send Media Message';
+        }
+        if (str_contains($endpoint, '/webhook/set')) {
+            return 'Set Webhook';
+        }
+        if (str_contains($endpoint, '/chat/findMessages')) {
+            return 'Get Messages';
+        }
+        if (str_contains($endpoint, '/chat/markMessageAsRead')) {
+            return 'Mark as Read';
+        }
+        if (str_contains($endpoint, '/chat/whatsappNumbers')) {
+            return 'Check WhatsApp Number';
         }
 
-        return $phoneNumber;
+        return 'API Request';
     }
 
     /**
-     * Obtém configurações da integração
+     * Normalize phone numbers for Evolution API v2:
+     * digits only, including country code, no leading '+'.
+     * Example: +49 170 1234567 -> 491701234567
      */
+    public function formatPhoneNumber(string $phoneNumber): string
+    {
+        $phoneNumber = trim($phoneNumber);
+        if (str_starts_with($phoneNumber, '00')) {
+            $phoneNumber = substr($phoneNumber, 2);
+        }
+
+        return preg_replace('/\D+/', '', $phoneNumber) ?? '';
+    }
+
     private function getIntegrationSettings(): array
     {
         $integration = $this->integrationHelper->getIntegrationObject('MauticEvolution');
-        
+
         if (!$integration || !$integration->getIntegrationSettings()->getIsPublished()) {
             return [];
         }
 
-        // Obtém as chaves descriptografadas (onde estão as configurações da API)
         $apiKeys = $integration->getDecryptedApiKeys();
-        
-        // Obtém as feature settings (configurações adicionais)
-        $featureSettings = $integration->getIntegrationSettings()->getFeatureSettings();
-        
-        // Mapeia as chaves descriptografadas para nomes corretos
+        $featureSettings = $integration->getIntegrationSettings()->getFeatureSettings() ?? [];
+
         $mappedApiKeys = [];
-        if (is_array($apiKeys) && count($apiKeys) >= 2) {
+        if (is_array($apiKeys)) {
             $mappedApiKeys = [
-                'evolution_api_url' => $apiKeys[0] ?? '',
-                'evolution_api_key' => $apiKeys[1] ?? '',
+                'evolution_api_url' => (string) ($apiKeys['evolution_api_url'] ?? $apiKeys[0] ?? ''),
+                'evolution_api_key' => (string) ($apiKeys['evolution_api_key'] ?? $apiKeys[1] ?? ''),
+                'evolution_instance' => (string) ($apiKeys['evolution_instance'] ?? $apiKeys[2] ?? ''),
             ];
         }
-        
-        // Mescla as duas configurações
-        return array_merge($mappedApiKeys, $featureSettings);
+
+        return array_merge($mappedApiKeys, is_array($featureSettings) ? $featureSettings : []);
     }
 
-    /**
-     * Obtém URL da API
-     */
     private function getApiUrl(): string
     {
         $settings = $this->getIntegrationSettings();
-        $url = rtrim($settings['evolution_api_url'] ?? '', '/');
-        
-        // Debug: Log para verificar se a URL está sendo carregada
-        $this->logger->info('Evolution API - getApiUrl Debug', [
-            'settings' => $settings,
-            'evolution_api_url' => $settings['evolution_api_url'] ?? 'NOT_SET',
-            'final_url' => $url,
-        ]);
-        
-        return $url;
+
+        return rtrim((string) ($settings['evolution_api_url'] ?? ''), '/');
     }
 
-    /**
-     * Obtém API Key
-     */
     private function getApiKey(): string
     {
         $settings = $this->getIntegrationSettings();
-        $apiKey = $settings['evolution_api_key'] ?? '';
-        
-        // Debug: Log para verificar se a API Key está sendo carregada (sem expor a chave completa)
-        $this->logger->info('Evolution API - getApiKey Debug', [
-            'has_api_key' => !empty($apiKey),
-            'api_key_length' => strlen($apiKey),
-            'api_key_preview' => !empty($apiKey) ? substr($apiKey, 0, 10) . '...' : 'EMPTY',
-        ]);
-        
-        return $apiKey;
+
+        return (string) ($settings['evolution_api_key'] ?? '');
     }
 
     /**
-     * Obtém nome da instância
+     * Instance name used in v2 paths such as /message/sendText/{instance}
      */
     private function getInstance(): string
     {
         $settings = $this->getIntegrationSettings();
-        
-        // Usa uma instância padrão ou configurada via feature settings
-        $instance = $settings['evolution_instance'] ?? 'default';
-        
-        // Debug: Log para verificar se a instância está sendo carregada
-        $this->logger->info('Evolution API - getInstance Debug', [
-            'evolution_instance' => $instance,
-            'has_instance' => !empty($instance),
-        ]);
-        
+        $instance = trim((string) ($settings['evolution_instance'] ?? ''));
+
         return $instance;
     }
 
-    /**
-     * Obtém timeout das requisições
-     */
     private function getTimeout(): int
     {
         $settings = $this->getIntegrationSettings();
+
         return (int) ($settings['evolution_timeout'] ?? 30);
     }
 
-    /**
-     * Verifica se a configuração está válida
-     */
     public function isConfigured(): bool
     {
-        return !empty($this->getApiUrl()) && 
-               !empty($this->getApiKey());
+        return !empty($this->getApiUrl())
+            && !empty($this->getApiKey())
+            && !empty($this->getInstance());
     }
 
-    /**
-     * Verifica status da instância
-     */
     public function getInstanceStatus(CampaignExecutionEvent $event = null): array
     {
-        return $this->makeRequest('GET', '/instance/connectionState/' . $this->getInstance(), [], null, $event);
+        return $this->makeRequest('GET', '/instance/connectionState/' . $this->getInstance(), [], null, $event, [], false);
     }
 
-    /**
-     * Testa conexão com a Evolution API
-     */
     public function testConnection(CampaignExecutionEvent $event = null): array
     {
         if (!$this->isConfigured()) {
-            $errorMessage = 'Configuração incompleta. Verifique URL, API Key e Instância.';
-            
-            // Registra falha no evento de campanha se disponível
+            $errorMessage = 'Incomplete configuration. Check URL, API Key and Instance.';
+
             if ($event instanceof CampaignExecutionEvent) {
                 $event->setFailed($errorMessage);
             }
-            
+
             return [
                 'success' => false,
                 'error' => $errorMessage,
@@ -673,28 +774,18 @@ class EvolutionApiService
         return $this->getInstanceStatus($event);
     }
 
-    /**
-     * Indica se a checagem de número WhatsApp deve ser realizada
-     * Controlado via feature settings (ex.: check_whatsapp_on_save)
-     */
     public function shouldCheckWhatsapp(): bool
     {
         $settings = $this->getIntegrationSettings();
-        $enabled = (bool) ($settings['check_whatsapp_on_save'] ?? false);
-        $this->logger->info('Evolution API - shouldCheckWhatsapp', [
-            'check_whatsapp_on_save' => $enabled,
-        ]);
-        return $enabled;
+
+        return (bool) ($settings['check_whatsapp_on_save'] ?? false);
     }
 
-    /**
-     * Registra evento de falha no timeline do contato
-     */
     private function logFailureEvent(Lead $contact, string $action, string $errorMessage, array $context = []): void
     {
         try {
             $user = $this->userHelper->getUser();
-            
+
             $eventLog = new LeadEventLog();
             $eventLog->setLead($contact);
             $eventLog->setBundle('EvolutionBundle');
@@ -713,12 +804,6 @@ class EvolutionApiService
 
             $this->entityManager->persist($eventLog);
             $this->entityManager->flush();
-
-            $this->logger->info('Evolution API failure event logged for contact', [
-                'contact_id' => $contact->getId(),
-                'action' => $action,
-                'error' => $errorMessage,
-            ]);
         } catch (\Exception $e) {
             $this->logger->error('Failed to log Evolution API failure event', [
                 'contact_id' => $contact->getId(),
@@ -727,9 +812,6 @@ class EvolutionApiService
         }
     }
 
-    /**
-     * Registra evento de sucesso no timeline do contato
-     */
     private function logSuccessEvent(Lead $contact, string $action, array $details = []): void
     {
         try {
@@ -741,7 +823,6 @@ class EvolutionApiService
             $eventLog->setObject('evolution_api');
             $eventLog->setObjectId($contact->getId());
             $eventLog->setAction('evolution_api_success');
-            // Garantir propriedades com carimbo de data/hora
             $props = array_merge([
                 'timestamp' => new \DateTime(),
             ], $details);
@@ -753,12 +834,6 @@ class EvolutionApiService
 
             $this->entityManager->persist($eventLog);
             $this->entityManager->flush();
-
-            $this->logger->info('Evolution API success event logged for contact', [
-                'contact_id' => $contact->getId(),
-                'action' => $action,
-                'message_id' => $props['messageId'] ?? null,
-            ]);
         } catch (\Exception $e) {
             $this->logger->error('Failed to log Evolution API success event', [
                 'contact_id' => $contact->getId(),

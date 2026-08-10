@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 return [
     'name'        => 'Evolution Bundle',
-    'description' => 'Provides evolution templates functionality for Mautic.',
-    'version'     => '1.0',
+    'description' => 'Mautic integration for Evolution API v2.x (WhatsApp messaging).',
+    'version'     => '2.0.0',
     'author'      => 'Evolution Team',
 
     'routes' => [

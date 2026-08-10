@@ -4,16 +4,15 @@ declare(strict_types=1);
 
 namespace MauticPlugin\MauticEvolutionBundle\EventListener;
 
-use MauticPlugin\MauticEvolutionBundle\Model\MessageModel;
-use MauticPlugin\MauticEvolutionBundle\Model\TemplateModel;
-use MauticPlugin\MauticEvolutionBundle\Service\EvolutionApiService;
 use Mautic\CampaignBundle\CampaignEvents;
 use Mautic\CampaignBundle\Event\CampaignBuilderEvent;
 use Mautic\CampaignBundle\Event\CampaignExecutionEvent;
-use Mautic\CoreBundle\Event\CustomButtonEvent;
-use Mautic\CoreBundle\Twig\Helper\ButtonHelper;
+use MauticPlugin\MauticEvolutionBundle\Exception\EvolutionApiException;
+use MauticPlugin\MauticEvolutionBundle\Exception\EvolutionDeliveryException;
+use MauticPlugin\MauticEvolutionBundle\Model\MessageModel;
+use MauticPlugin\MauticEvolutionBundle\Model\TemplateModel;
+use MauticPlugin\MauticEvolutionBundle\Service\EvolutionApiService;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
-use Symfony\Contracts\Translation\TranslatorInterface;
 
 /**
  * Class CampaignSubscriber
@@ -100,29 +99,41 @@ class CampaignSubscriber implements EventSubscriberInterface
 
             if (empty($message)) {
                 $event->setResult(false);
-                $event->setFailed('Mensagem não configurada');
+                $event->setFailed('Message content is not configured');
                 return;
             }
-            if (empty($groupAlias)) {
+
+            // groupAlias is optional: empty => Evolution v2 /message/sendText/{instance}
+            $result = $this->messageModel->sendMessage(
+                $lead,
+                $message,
+                null,
+                !empty($groupAlias) ? (string) $groupAlias : null,
+                $phoneField,
+                $headers,
+                $metadata
+            );
+
+            if ($result === null) {
                 $event->setResult(false);
-                $event->setFailed('Seleção de grupo não configurada');
+                $event->setFailed('Contact has no valid phone number');
+
                 return;
             }
 
-            // Envia mensagem com suporte a group alias e phone field
-            $result = $this->messageModel->sendMessage($lead, $message, null, $groupAlias, $phoneField, $headers, $metadata);
-
-            if ($result) {
+            if ($result->getStatus() !== 'failed') {
                 $event->setResult(true);
                 $event->setChannel('whatsapp', $lead->getId());
             } else {
                 $event->setResult(false);
-                $event->setFailed('Erro ao enviar mensagem');
+                $event->setFailed($result->getErrorMessage() ?? 'Failed to send WhatsApp message');
             }
-
+        } catch (EvolutionDeliveryException|EvolutionApiException $e) {
+            $event->setResult(false);
+            $event->setFailed($e->getMessage());
         } catch (\Exception $e) {
             $event->setResult(false);
-            $event->setFailed('Erro ao enviar mensagem: ' . $e->getMessage());
+            $event->setFailed('Error sending message: ' . $e->getMessage());
         }
     }
 
@@ -144,42 +155,50 @@ class CampaignSubscriber implements EventSubscriberInterface
 
             if (empty($templateId)) {
                 $event->setResult(false);
-                $event->setFailed('Template não selecionado');
+                $event->setFailed('Template not selected');
                 return;
             }
 
-            if (empty($groupAlias)) {
-                $event->setResult(false);
-                $event->setFailed('Seleção de grupo não configurada');
-                return;
-            }
-
-            // Buscar template
             $template = $this->templateModel->getEntity($templateId);
-            
+
             if (!$template) {
                 $event->setResult(false);
-                $event->setFailed('Template não encontrado');
+                $event->setFailed('Template not found');
                 return;
             }
 
-            // Obter conteúdo do template
             $templateContent = $template->getContent();
 
-            // Enviar mensagem usando o template, com suporte a group alias e phone field
-            $result = $this->messageModel->sendMessage($lead, $templateContent, $template->getName(), $groupAlias, $phoneField, $headers, $metadata);
+            $result = $this->messageModel->sendMessage(
+                $lead,
+                $templateContent,
+                $template->getName(),
+                !empty($groupAlias) ? (string) $groupAlias : null,
+                $phoneField,
+                $headers,
+                $metadata
+            );
 
-            if ($result) {
+            if ($result === null) {
+                $event->setResult(false);
+                $event->setFailed('Contact has no valid phone number');
+
+                return;
+            }
+
+            if ($result->getStatus() !== 'failed') {
                 $event->setResult(true);
                 $event->setChannel('whatsapp', $lead->getId());
             } else {
                 $event->setResult(false);
-                $event->setFailed('Erro ao enviar template');
+                $event->setFailed($result->getErrorMessage() ?? 'Failed to send WhatsApp template');
             }
-
+        } catch (EvolutionDeliveryException|EvolutionApiException $e) {
+            $event->setResult(false);
+            $event->setFailed($e->getMessage());
         } catch (\Exception $e) {
             $event->setResult(false);
-            $event->setFailed('Erro ao enviar template: ' . $e->getMessage());
+            $event->setFailed('Error sending template: ' . $e->getMessage());
         }
     }
 

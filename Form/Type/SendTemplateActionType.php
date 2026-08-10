@@ -9,8 +9,6 @@ use MauticPlugin\MauticEvolutionBundle\Model\TemplateModel;
 use MauticPlugin\MauticEvolutionBundle\Service\EvolutionApiService;
 use Symfony\Component\Form\AbstractType;
 use Symfony\Component\Form\Extension\Core\Type\ChoiceType;
-use Symfony\Component\Form\Extension\Core\Type\CollectionType;
-use MauticPlugin\MauticEvolutionBundle\Form\Type\KeyValueType;
 use Symfony\Component\Form\FormBuilderInterface;
 use Symfony\Component\OptionsResolver\OptionsResolver;
 use Symfony\Component\Validator\Constraints as Assert;
@@ -49,7 +47,7 @@ class SendTemplateActionType extends AbstractType
         $builder
             ->add('group_alias', ChoiceType::class, [
                 'label' => 'mautic.evolution.campaign.action.group.label',
-                'label_attr' => ['class' => 'control-label required'],
+                'label_attr' => ['class' => 'control-label'],
                 'attr' => [
                     'class' => 'form-control',
                     'tooltip' => 'mautic.evolution.campaign.action.group.tooltip',
@@ -57,12 +55,8 @@ class SendTemplateActionType extends AbstractType
                 ],
                 'placeholder' => 'mautic.evolution.campaign.action.group.placeholder',
                 'choices' => $groupChoices,
-                'required' => true,
-                'constraints' => [
-                    new Assert\NotBlank([
-                        'message' => 'mautic.evolution.campaign.action.group.notblank',
-                    ]),
-                ],
+                // Optional: when empty, uses Evolution API v2 /message/sendText/{instance}
+                'required' => false,
                 'help' => 'mautic.evolution.campaign.action.group.help',
             ])
             ->add('template', ChoiceType::class, [

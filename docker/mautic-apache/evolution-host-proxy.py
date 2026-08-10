@@ -7,6 +7,7 @@ Point Mautic API URL to http://host.docker.internal:8082
 
 from __future__ import annotations
 
+import os
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer

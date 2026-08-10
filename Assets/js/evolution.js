@@ -214,21 +214,16 @@ var MauticEvolution = {
     },
     
     /**
-     * Format phone number for WhatsApp
+     * Format phone number for Evolution API v2
+     * Digits only, including country code, no leading '+'
+     * Example: +49 170 1234567 -> 491701234567
      */
     formatPhoneNumber: function(phone) {
-        // Remove all non-numeric characters
-        var cleaned = phone.replace(/\D/g, '');
-        
-        // Add country code if not present
-        if (cleaned.length === 11 && cleaned.startsWith('0')) {
-            cleaned = '55' + cleaned.substring(1);
-        } else if (cleaned.length === 10) {
-            cleaned = '55' + cleaned;
-        } else if (cleaned.length === 11 && !cleaned.startsWith('55')) {
-            cleaned = '55' + cleaned;
+        var cleaned = String(phone || '').trim();
+        if (cleaned.indexOf('00') === 0) {
+            cleaned = cleaned.substring(2);
         }
-        
+        cleaned = cleaned.replace(/\D/g, '');
         return cleaned;
     },
     

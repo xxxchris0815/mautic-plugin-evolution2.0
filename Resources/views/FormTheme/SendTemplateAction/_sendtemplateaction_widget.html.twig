@@ -21,19 +21,22 @@
             {{ form_label(form.template) }}
             {{ form_widget(form.template) }}
             {{ form_errors(form.template) }}
-            {% if form.template.vars.attr['data-templates-error']|default('0') == '1' %}
-                <div class="alert alert-warning" role="alert" style="margin-top:8px;">
-                    {{ 'mautic.evolution.campaign.action.template.load_error'|trans }}
-                </div>
-            {% elseif form.template.vars.choices is empty %}
-                <div class="alert alert-warning" role="alert" style="margin-top:8px;">
-                    {{ 'mautic.evolution.campaign.action.template.empty'|trans }}
-                </div>
-            {% endif %}
             <div class="help-block">
                 <small>
                     <i class="fa fa-info-circle"></i>
-                    {{ 'mautic.evolution.campaign.action.template.select.help'|trans }}
+                    {{ 'mautic.evolution.campaign.action.template.name.help'|trans }}
+                </small>
+            </div>
+        </div>
+
+        <div class="form-group">
+            {{ form_label(form.language) }}
+            {{ form_widget(form.language) }}
+            {{ form_errors(form.language) }}
+            <div class="help-block">
+                <small>
+                    <i class="fa fa-info-circle"></i>
+                    {{ 'mautic.evolution.campaign.action.template.language.help'|trans }}
                 </small>
             </div>
         </div>
@@ -46,7 +49,9 @@
                     {{ 'mautic.evolution.campaign.action.template.variables.help'|trans }}
                 </small>
             </div>
-            <div class="evolution-template-variable-hints alert alert-info" style="display:none;margin-top:8px;"></div>
+            <div class="alert alert-info" style="margin-top:8px;">
+                {{ 'mautic.evolution.campaign.action.template.variables.manual_hint'|trans }}
+            </div>
         </div>
 
         <div class="form-group">
@@ -54,8 +59,6 @@
             {{ form_widget(form.phone_field, {'attr': {'class': 'form-control'}}) }}
             {{ form_errors(form.phone_field) }}
         </div>
-
-        {{ form_row(form.template_catalog_json) }}
 
         <div class="form-group">
             {{ form_row(form.headers) }}

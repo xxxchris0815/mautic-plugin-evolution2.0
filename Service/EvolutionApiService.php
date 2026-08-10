@@ -724,6 +724,22 @@ class EvolutionApiService
             return $this->stringifyError($responseData) ?? 'Evolution API reported success=false';
         }
 
+        // Evolution sometimes returns HTTP 201 with a Meta Graph error body (no message key/id).
+        $type = strtolower((string) ($responseData['type'] ?? ''));
+        $code = $responseData['code'] ?? null;
+        $message = is_string($responseData['message'] ?? null) ? $responseData['message'] : '';
+        $looksLikeMetaError = $type === 'oauthexception'
+            || (is_numeric($code) && (int) $code >= 100 && !isset($responseData['key']))
+            || (str_starts_with($message, '(#') && !isset($responseData['key']));
+        if ($looksLikeMetaError) {
+            $details = '';
+            if (isset($responseData['error_data']['details']) && is_string($responseData['error_data']['details'])) {
+                $details = ' — ' . $responseData['error_data']['details'];
+            }
+
+            return ($message !== '' ? $message : 'Meta/WhatsApp API error') . $details;
+        }
+
         return null;
     }
 

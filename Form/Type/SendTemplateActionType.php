@@ -8,13 +8,16 @@ use Mautic\CoreBundle\Form\Type\SortableListType;
 use MauticPlugin\MauticEvolutionBundle\Service\EvolutionApiService;
 use Symfony\Component\Form\AbstractType;
 use Symfony\Component\Form\Extension\Core\Type\ChoiceType;
-use Symfony\Component\Form\Extension\Core\Type\HiddenType;
+use Symfony\Component\Form\Extension\Core\Type\TextType;
 use Symfony\Component\Form\FormBuilderInterface;
 use Symfony\Component\OptionsResolver\OptionsResolver;
 use Symfony\Component\Validator\Constraints as Assert;
 
 /**
  * Campaign action form: send WhatsApp Business Cloud templates via Evolution API v2.
+ *
+ * Template name/language are free-text because Evolution's GET /template/find/{instance}
+ * often returns an empty body (not fully implemented / not synced).
  */
 class SendTemplateActionType extends AbstractType
 {
@@ -47,30 +50,13 @@ class SendTemplateActionType extends AbstractType
             }
         }
 
-        $templatesResult = ($defaultInstance !== '' && $this->evolutionApiService->isCloudTemplateInstance($defaultInstance))
-            ? $this->evolutionApiService->findTemplates($defaultInstance, true)
-            : ['success' => true, 'templates' => [], 'choices' => []];
-        $templateChoices = $templatesResult['choices'] ?? [];
-        $existingTemplate = (string) ($formData['template'] ?? '');
-        if ($existingTemplate !== '' && !in_array($existingTemplate, $templateChoices, true)) {
-            $templateChoices[$existingTemplate] = $existingTemplate;
-        }
-
-        $catalog = [];
-        foreach ($templatesResult['templates'] ?? [] as $template) {
-            $name = (string) ($template['name'] ?? '');
-            $language = (string) ($template['language'] ?? '');
-            if ($name === '' || $language === '') {
-                continue;
-            }
-            $key = $name . '|' . $language;
-            $catalog[$key] = [
-                'name' => $name,
-                'language' => $language,
-                'status' => $template['status'] ?? null,
-                'category' => $template['category'] ?? null,
-                'variables' => $this->evolutionApiService->getTemplateHelper()->extractVariables($template),
-            ];
+        // Backward compatible with older configs that stored "name|language"
+        $templateName = (string) ($formData['template'] ?? '');
+        $language = (string) ($formData['language'] ?? '');
+        if ($language === '' && str_contains($templateName, '|')) {
+            [$templateName, $language] = array_pad(explode('|', $templateName, 2), 2, '');
+            $templateName = trim($templateName);
+            $language = trim($language);
         }
 
         $builder
@@ -81,7 +67,6 @@ class SendTemplateActionType extends AbstractType
                     'class' => 'form-control evolution-instance-select',
                     'tooltip' => 'mautic.evolution.campaign.action.instance.cloud.tooltip',
                     'data-cloud-only' => '1',
-                    'data-templates-url' => '/s/evolution/ajax/templates',
                 ],
                 'choices' => $instanceChoices,
                 'data' => $defaultInstance !== '' ? $defaultInstance : null,
@@ -94,23 +79,47 @@ class SendTemplateActionType extends AbstractType
                 ],
                 'help' => 'mautic.evolution.campaign.action.instance.cloud.help',
             ])
-            ->add('template', ChoiceType::class, [
-                'label' => 'mautic.evolution.campaign.action.template.select',
+            ->add('template', TextType::class, [
+                'label' => 'mautic.evolution.campaign.action.template.name',
                 'label_attr' => ['class' => 'control-label required'],
                 'attr' => [
-                    'class' => 'form-control evolution-template-select',
-                    'tooltip' => 'mautic.evolution.campaign.action.template.select.tooltip',
-                    'data-template-catalog' => json_encode($catalog, JSON_UNESCAPED_UNICODE) ?: '{}',
-                    'data-templates-error' => !empty($templatesResult['success']) ? '0' : '1',
+                    'class' => 'form-control evolution-template-name',
+                    'tooltip' => 'mautic.evolution.campaign.action.template.name.tooltip',
+                    'placeholder' => 'vsl_challenge_1_q',
                 ],
-                'choices' => $templateChoices,
-                'placeholder' => 'mautic.evolution.campaign.action.template.select.placeholder',
+                'data' => $templateName !== '' ? $templateName : null,
+                'required' => true,
                 'constraints' => [
                     new Assert\NotBlank([
-                        'message' => 'mautic.evolution.campaign.action.template.select.notblank',
+                        'message' => 'mautic.evolution.campaign.action.template.name.notblank',
+                    ]),
+                    new Assert\Regex([
+                        'pattern' => '/^[A-Za-z0-9_]+$/',
+                        'message' => 'mautic.evolution.campaign.action.template.name.invalid',
                     ]),
                 ],
-                'help' => 'mautic.evolution.campaign.action.template.select.help',
+                'help' => 'mautic.evolution.campaign.action.template.name.help',
+            ])
+            ->add('language', TextType::class, [
+                'label' => 'mautic.evolution.campaign.action.template.language',
+                'label_attr' => ['class' => 'control-label required'],
+                'attr' => [
+                    'class' => 'form-control evolution-template-language',
+                    'tooltip' => 'mautic.evolution.campaign.action.template.language.tooltip',
+                    'placeholder' => 'de',
+                ],
+                'data' => $language !== '' ? $language : null,
+                'required' => true,
+                'constraints' => [
+                    new Assert\NotBlank([
+                        'message' => 'mautic.evolution.campaign.action.template.language.notblank',
+                    ]),
+                    new Assert\Regex([
+                        'pattern' => '/^[A-Za-z]{2}(?:_[A-Za-z]{2})?$/',
+                        'message' => 'mautic.evolution.campaign.action.template.language.invalid',
+                    ]),
+                ],
+                'help' => 'mautic.evolution.campaign.action.template.language.help',
             ])
             ->add(
                 'variables',
@@ -139,14 +148,6 @@ class SendTemplateActionType extends AbstractType
                 ],
                 'data' => 'mobile',
                 'required' => false,
-            ])
-            ->add('template_catalog_json', HiddenType::class, [
-                'mapped' => false,
-                'required' => false,
-                'data' => json_encode($catalog, JSON_UNESCAPED_UNICODE) ?: '{}',
-                'attr' => [
-                    'class' => 'evolution-template-catalog-json',
-                ],
             ])
             ->add(
                 'headers',

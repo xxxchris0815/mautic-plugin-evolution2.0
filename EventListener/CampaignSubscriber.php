@@ -124,26 +124,30 @@ class CampaignSubscriber implements EventSubscriberInterface
         $lead = $event->getLead();
 
         try {
-            $templateKey = (string) ($config['template'] ?? '');
+            $templateName = trim((string) ($config['template'] ?? ''));
+            $language = trim((string) ($config['language'] ?? ''));
             $phoneField = $config['phone_field'] ?? 'mobile';
             $instance = $config['instance'] ?? null;
             $headers = $this->normalizeKeyValueCollection($config['headers'] ?? []);
             $variables = $this->normalizeKeyValueCollection($config['variables'] ?? []);
 
-            if ($templateKey === '') {
+            // Backward compatible with older configs that stored "name|language"
+            if ($language === '' && str_contains($templateName, '|')) {
+                [$templateName, $language] = array_pad(explode('|', $templateName, 2), 2, '');
+                $templateName = trim($templateName);
+                $language = trim($language);
+            }
+
+            if ($templateName === '') {
                 $event->setResult(false);
-                $event->setFailed('Template not selected');
+                $event->setFailed('Template name is required');
 
                 return;
             }
 
-            [$templateName, $language] = array_pad(explode('|', $templateKey, 2), 2, '');
-            $templateName = trim($templateName);
-            $language = trim($language);
-
-            if ($templateName === '' || $language === '') {
+            if ($language === '') {
                 $event->setResult(false);
-                $event->setFailed('Invalid template selection (expected name|language)');
+                $event->setFailed('Template language is required (e.g. de, en_US)');
 
                 return;
             }

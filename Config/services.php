@@ -16,6 +16,9 @@ return function (ContainerConfigurator $configurator): void {
     $services->load('MauticPlugin\\MauticEvolutionBundle\\', '../')
         ->exclude('../{Config,Resources,Model,composer.json,MauticEvolutionBundle.php,README.md}');
 
+    $services->set(MauticPlugin\MauticEvolutionBundle\Helper\WhatsAppTemplateHelper::class)
+        ->public();
+
     // Evolution API service
     $services->set(MauticPlugin\MauticEvolutionBundle\Service\EvolutionApiService::class)
         ->public()
@@ -25,6 +28,7 @@ return function (ContainerConfigurator $configurator): void {
             service('monolog.logger.mautic'),
             service('mautic.helper.user'),
             service('doctrine.orm.entity_manager'),
+            service(MauticPlugin\MauticEvolutionBundle\Helper\WhatsAppTemplateHelper::class),
         ]);
     $services->alias('mautic.evolution.service.evolution_api', MauticPlugin\MauticEvolutionBundle\Service\EvolutionApiService::class);
 
@@ -64,7 +68,6 @@ return function (ContainerConfigurator $configurator): void {
     $services->set(MauticPlugin\MauticEvolutionBundle\Form\Type\SendTemplateActionType::class)
         ->public()
         ->args([
-            service(MauticPlugin\MauticEvolutionBundle\Model\TemplateModel::class),
             service('mautic.evolution.service.evolution_api'),
         ])
         ->tag('form.type');

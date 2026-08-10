@@ -27,6 +27,99 @@ var MauticEvolution = {
         
         // Form validation
         mQuery(document).on('submit', '.evolution-form', this.validateForm);
+
+        // Campaign builder: instance/template selectors for WhatsApp Cloud templates
+        mQuery(document).on('change', '.evolution-send-template-widget .evolution-instance-select', function() {
+            MauticEvolution.reloadTemplatesForInstance(mQuery(this));
+        });
+        mQuery(document).on('change', '.evolution-send-template-widget .evolution-template-select', function() {
+            MauticEvolution.renderTemplateVariableHints(mQuery(this));
+        });
+
+        // Initialize hints when campaign action form is injected
+        mQuery(document).on('shown.bs.modal ajaxComplete', function() {
+            mQuery('.evolution-send-template-widget .evolution-template-select').each(function() {
+                MauticEvolution.renderTemplateVariableHints(mQuery(this));
+            });
+        });
+    },
+
+    templatesAjaxUrl: function(instance) {
+        var base = (typeof mauticBasePath !== 'undefined' ? mauticBasePath : '');
+        return base + '/s/evolution/ajax/templates/' + encodeURIComponent(instance || '');
+    },
+
+    reloadTemplatesForInstance: function($instanceSelect) {
+        var $widget = $instanceSelect.closest('.evolution-send-template-widget');
+        var instance = $instanceSelect.val();
+        var $templateSelect = $widget.find('.evolution-template-select');
+        if (!instance || !$templateSelect.length) {
+            return;
+        }
+
+        $templateSelect.prop('disabled', true);
+        mQuery.getJSON(MauticEvolution.templatesAjaxUrl(instance))
+            .done(function(response) {
+                $templateSelect.empty();
+                $templateSelect.append(mQuery('<option>', { value: '', text: '' }));
+                if (response.choices) {
+                    mQuery.each(response.choices, function(label, value) {
+                        $templateSelect.append(mQuery('<option>', { value: value, text: label }));
+                    });
+                }
+                var catalog = response.templates || {};
+                $templateSelect.attr('data-template-catalog', JSON.stringify(catalog));
+                $widget.find('.evolution-template-catalog-json').val(JSON.stringify(catalog));
+                MauticEvolution.renderTemplateVariableHints($templateSelect);
+            })
+            .fail(function() {
+                if (typeof Mautic !== 'undefined' && Mautic.addInfoFlashMessage) {
+                    Mautic.addInfoFlashMessage('Failed to load Evolution templates for instance');
+                    Mautic.setFlashes();
+                }
+            })
+            .always(function() {
+                $templateSelect.prop('disabled', false);
+            });
+    },
+
+    renderTemplateVariableHints: function($templateSelect) {
+        var $widget = $templateSelect.closest('.evolution-send-template-widget');
+        var $hints = $widget.find('.evolution-template-variable-hints');
+        if (!$hints.length) {
+            return;
+        }
+
+        var key = $templateSelect.val();
+        var catalogRaw = $templateSelect.attr('data-template-catalog') || '{}';
+        var catalog = {};
+        try {
+            catalog = JSON.parse(catalogRaw);
+        } catch (e) {
+            catalog = {};
+        }
+
+        var entry = catalog[key];
+        if (!entry || !entry.variables || !entry.variables.length) {
+            $hints.hide().empty();
+            return;
+        }
+
+        var lines = ['Required template variables (use keys below in Variables):'];
+        mQuery.each(entry.variables, function(_, variable) {
+            var line = variable.key;
+            if (variable.label) {
+                line += ' — ' + variable.label;
+            }
+            if (variable.example) {
+                line += ' (e.g. ' + variable.example + ')';
+            }
+            if (variable.text) {
+                line += '<br><code style="white-space:pre-wrap;">' + mQuery('<div>').text(variable.text).html() + '</code>';
+            }
+            lines.push(line);
+        });
+        $hints.html(lines.join('<br>')).show();
     },
     
     /**

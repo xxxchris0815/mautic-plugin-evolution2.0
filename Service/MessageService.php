@@ -112,26 +112,28 @@ class MessageService
     /**
      * Envia mensagem simples para um lead (com suporte a group alias e phone_field)
      */
-    public function sendMessage(Lead $lead, string $message, ?string $groupAlias = null, string $phoneField = 'mobile'): array
+    public function sendMessage(Lead $lead, string $message, ?string $instance = null, string $phoneField = 'mobile'): array
     {
         try {
             $phoneNumber = $this->getLeadPhoneNumber($lead, $phoneField);
-            
+
             if (empty($phoneNumber)) {
                 return [
                     'success' => false,
-                    'error' => 'Número de telefone não encontrado no lead',
+                    'error' => 'Phone number not found on lead',
                 ];
             }
 
-            // Processa tokens na mensagem
             $processedMessage = $this->processMessageTokens($message, $lead);
-
-            if (!empty($groupAlias)) {
-                $result = $this->evolutionApiService->sendTextWithGroupBalancing($groupAlias, $phoneNumber, $processedMessage, [], $lead);
-            } else {
-                $result = $this->evolutionApiService->sendTextMessage($phoneNumber, $processedMessage, $lead);
-            }
+            $result = $this->evolutionApiService->sendTextMessage(
+                $phoneNumber,
+                $processedMessage,
+                $lead,
+                null,
+                [],
+                [],
+                $instance
+            );
 
             return [
                 'success' => true,

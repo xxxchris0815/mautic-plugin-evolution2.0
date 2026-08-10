@@ -15,6 +15,7 @@ use Mautic\LeadBundle\Entity\LeadEventLog;
 use Mautic\PluginBundle\Helper\IntegrationHelper;
 use MauticPlugin\MauticEvolutionBundle\Exception\EvolutionApiException;
 use MauticPlugin\MauticEvolutionBundle\Exception\EvolutionDeliveryException;
+use MauticPlugin\MauticEvolutionBundle\Helper\WhatsAppTemplateHelper;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -29,134 +30,257 @@ class EvolutionApiService
     private IntegrationHelper $integrationHelper;
     private UserHelper $userHelper;
     private EntityManagerInterface $entityManager;
+    private WhatsAppTemplateHelper $templateHelper;
 
     public function __construct(
         IntegrationHelper $integrationHelper,
         Client $httpClient,
         LoggerInterface $logger,
         UserHelper $userHelper,
-        EntityManagerInterface $entityManager
+        EntityManagerInterface $entityManager,
+        WhatsAppTemplateHelper $templateHelper
     ) {
         $this->integrationHelper = $integrationHelper;
         $this->httpClient = $httpClient;
         $this->logger = $logger;
         $this->userHelper = $userHelper;
         $this->entityManager = $entityManager;
+        $this->templateHelper = $templateHelper;
     }
 
     /**
      * Send a plain text message via Evolution API v2
      * POST /message/sendText/{instance}
      */
-    public function sendTextMessage(string $number, string $message, Lead $contact = null, CampaignExecutionEvent $event = null, array $customHeaders = [], array $metadata = []): array
-    {
+    public function sendTextMessage(
+        string $number,
+        string $message,
+        Lead $contact = null,
+        CampaignExecutionEvent $event = null,
+        array $customHeaders = [],
+        array $metadata = [],
+        ?string $instance = null
+    ): array {
         $data = $this->buildTextPayload($number, $message, $metadata);
 
-        return $this->makeRequest('POST', '/message/sendText/' . $this->getInstance(), $data, $contact, $event, $customHeaders, true);
+        return $this->makeRequest(
+            'POST',
+            '/message/sendText/' . $this->resolveInstance($instance),
+            $data,
+            $contact,
+            $event,
+            $customHeaders,
+            true
+        );
     }
 
     /**
-     * Legacy / custom balancing endpoint (not part of stock Evolution API v2).
-     * Falls back to sendText when balancing is unavailable.
+     * Send WhatsApp Business Cloud template
+     * POST /message/sendTemplate/{instance}
+     *
+     * @param array<int, array<string, mixed>> $components
      */
-    public function sendTextWithBalancing(string $number, string $message, Lead $contact = null, CampaignExecutionEvent $event = null, array $customHeaders = [], array $metadata = []): array
-    {
-        $data = $this->buildTextPayload($number, $message, $metadata);
-
-        try {
-            return $this->makeRequest('POST', '/message/sendTextWithBalancing/', $data, $contact, $event, $customHeaders, true);
-        } catch (EvolutionDeliveryException $e) {
-            if ($e->getStatusCode() === 404) {
-                $this->logger->warning('sendTextWithBalancing unavailable, falling back to sendText/{instance}');
-
-                return $this->sendTextMessage($number, $message, $contact, $event, $customHeaders, $metadata);
-            }
-
-            throw $e;
-        }
-    }
-
-    /**
-     * Custom group balancing endpoint (optional extension). Falls back to sendText on 404.
-     */
-    public function sendTextWithGroupBalancing(string $alias, string $number, string $text, array $options = [], Lead $contact = null, CampaignExecutionEvent $event = null, array $customHeaders = [], array $metadata = []): array
-    {
+    public function sendTemplateMessage(
+        string $number,
+        string $templateName,
+        string $language,
+        array $components = [],
+        Lead $contact = null,
+        CampaignExecutionEvent $event = null,
+        array $customHeaders = [],
+        ?string $instance = null
+    ): array {
         $data = [
-            'alias' => $alias,
             'number' => $this->formatPhoneNumber($number),
-            'text' => $text,
+            'name' => $templateName,
+            'language' => $language,
         ];
 
-        if (isset($options['delay'])) {
-            $data['delay'] = (int) $options['delay'];
-        }
-        if (isset($options['mentionsEveryOne'])) {
-            $data['mentionsEveryOne'] = (bool) $options['mentionsEveryOne'];
-        }
-        if (isset($options['mentioned']) && is_array($options['mentioned'])) {
-            $data['mentioned'] = $options['mentioned'];
-        }
-        if (!empty($metadata)) {
-            $data['metadata'] = $this->sanitizeKeyValueMap($metadata);
+        if (!empty($components)) {
+            $data['components'] = array_values($components);
         }
 
-        try {
-            return $this->makeRequest('POST', '/message/sendTextWithGroupBalancing', $data, $contact, $event, $customHeaders, true);
-        } catch (EvolutionDeliveryException $e) {
-            if ($e->getStatusCode() === 404) {
-                $this->logger->warning('sendTextWithGroupBalancing unavailable, falling back to sendText/{instance}', [
-                    'alias' => $alias,
-                ]);
-
-                return $this->sendTextMessage($number, $text, $contact, $event, $customHeaders, $metadata);
-            }
-
-            throw $e;
-        }
+        return $this->makeRequest(
+            'POST',
+            '/message/sendTemplate/' . $this->resolveInstance($instance),
+            $data,
+            $contact,
+            $event,
+            $customHeaders,
+            true
+        );
     }
 
     /**
-     * Optional instance-group listing (custom extension). Returns empty list on 404.
+     * List Evolution instances
+     * GET /instance/fetchInstances
      *
-     * @return array{success: bool, groups: array<int, array{id: string, name: string, alias: string, enabled: bool}>, error?: string}
+     * @return array{success: bool, instances: array<int, array{name: string, status?: string, integration?: string}>, error?: string}
      */
-    public function getInstanceGroups(): array
+    public function fetchInstances(): array
     {
         try {
-            $result = $this->makeRequest('GET', '/instance-group', [], null, null, [], false);
+            $result = $this->makeRequest('GET', '/instance/fetchInstances', [], null, null, [], false);
         } catch (EvolutionApiException|EvolutionDeliveryException $e) {
             return [
                 'success' => false,
-                'groups' => [],
+                'instances' => $this->fallbackInstanceChoices(),
                 'error' => $e->getMessage(),
             ];
         }
 
-        if (!$result['success']) {
+        if (!($result['success'] ?? false)) {
             return [
                 'success' => false,
-                'groups' => [],
-                'error' => $result['error'] ?? 'Failed to fetch instance groups',
+                'instances' => $this->fallbackInstanceChoices(),
+                'error' => $result['error'] ?? 'Failed to fetch instances',
             ];
         }
 
-        $groups = [];
-        foreach (($result['data'] ?? []) as $item) {
-            if (!is_array($item) || !isset($item['enabled']) || $item['enabled'] !== true) {
+        $raw = $result['data'] ?? [];
+        if (!is_array($raw)) {
+            $raw = [];
+        }
+
+        // Response may be a list or wrapped
+        if (isset($raw['instance']) && is_array($raw['instance'])) {
+            $raw = [$raw];
+        } elseif (!$this->isListArray($raw) && isset($raw['name'])) {
+            $raw = [$raw];
+        }
+
+        $instances = [];
+        foreach ($raw as $item) {
+            if (!is_array($item)) {
                 continue;
             }
-            $groups[] = [
-                'id' => (string) ($item['id'] ?? ''),
-                'name' => (string) ($item['name'] ?? ''),
-                'alias' => (string) ($item['alias'] ?? ''),
-                'enabled' => (bool) ($item['enabled'] ?? false),
+            $name = (string) (
+                $item['name']
+                ?? $item['instanceName']
+                ?? ($item['instance']['instanceName'] ?? '')
+            );
+            if ($name === '') {
+                continue;
+            }
+            $instances[] = [
+                'name' => $name,
+                'status' => (string) (
+                    $item['connectionStatus']
+                    ?? $item['status']
+                    ?? ($item['instance']['state'] ?? '')
+                ),
+                'integration' => (string) (
+                    $item['integration']
+                    ?? ($item['instance']['integration'] ?? '')
+                ),
             ];
+        }
+
+        if ($instances === []) {
+            $instances = $this->fallbackInstanceChoices();
         }
 
         return [
             'success' => true,
-            'groups' => $groups,
+            'instances' => $instances,
         ];
+    }
+
+    /**
+     * Fetch WhatsApp Business templates for an instance
+     * GET /template/find/{instance}
+     *
+     * @return array{success: bool, templates: array<int, array<string, mixed>>, choices: array<string, string>, error?: string}
+     */
+    public function findTemplates(?string $instance = null, bool $approvedOnly = true): array
+    {
+        try {
+            $resolved = $this->resolveInstance($instance);
+        } catch (EvolutionApiException $e) {
+            return [
+                'success' => false,
+                'templates' => [],
+                'choices' => [],
+                'error' => $e->getMessage(),
+            ];
+        }
+
+        try {
+            $result = $this->makeRequest('GET', '/template/find/' . $resolved, [], null, null, [], false);
+        } catch (EvolutionApiException|EvolutionDeliveryException $e) {
+            return [
+                'success' => false,
+                'templates' => [],
+                'choices' => [],
+                'error' => $e->getMessage(),
+            ];
+        }
+
+        if (!($result['success'] ?? false)) {
+            return [
+                'success' => false,
+                'templates' => [],
+                'choices' => [],
+                'error' => $result['error'] ?? 'Failed to fetch templates',
+            ];
+        }
+
+        $templates = $this->templateHelper->normalizeTemplateList($result['data'] ?? []);
+
+        return [
+            'success' => true,
+            'templates' => $templates,
+            'choices' => $this->templateHelper->toChoices($templates, $approvedOnly),
+            'instance' => $resolved,
+        ];
+    }
+
+    /**
+     * @return array<int, array{key: string, label: string, component: string, index: int, example?: string}>
+     */
+    public function getTemplateVariables(string $templateName, string $language, ?string $instance = null): array
+    {
+        $result = $this->findTemplates($instance, false);
+        if (!($result['success'] ?? false)) {
+            return [];
+        }
+
+        $template = $this->templateHelper->findTemplate($result['templates'], $templateName, $language);
+
+        return $template ? $this->templateHelper->extractVariables($template) : [];
+    }
+
+    public function getTemplateHelper(): WhatsAppTemplateHelper
+    {
+        return $this->templateHelper;
+    }
+
+    /**
+     * Instance choices for forms: label => value
+     *
+     * @return array<string, string>
+     */
+    public function getInstanceChoices(): array
+    {
+        $result = $this->fetchInstances();
+        $choices = [];
+        foreach ($result['instances'] as $instance) {
+            $name = $instance['name'];
+            $label = $name;
+            if (!empty($instance['status'])) {
+                $label .= ' [' . $instance['status'] . ']';
+            }
+            $choices[$label] = $name;
+        }
+
+        if ($choices === []) {
+            $default = $this->getConfiguredInstance();
+            if ($default !== '') {
+                $choices[$default] = $default;
+            }
+        }
+
+        return $choices;
     }
 
     /**
@@ -173,7 +297,8 @@ class EvolutionApiService
         CampaignExecutionEvent $event = null,
         string $mediaType = 'image',
         ?string $fileName = null,
-        ?string $mimetype = null
+        ?string $mimetype = null,
+        ?string $instance = null
     ): array {
         $allowedTypes = ['image', 'document', 'video', 'audio'];
         if (!in_array($mediaType, $allowedTypes, true)) {
@@ -196,14 +321,14 @@ class EvolutionApiService
             $data['mimetype'] = $mimetype;
         }
 
-        return $this->makeRequest('POST', '/message/sendMedia/' . $this->getInstance(), $data, $contact, $event, [], true);
+        return $this->makeRequest('POST', '/message/sendMedia/' . $this->resolveInstance($instance), $data, $contact, $event, [], true);
     }
 
     /**
      * Configure webhook for the instance (Evolution API v2)
      * POST /webhook/set/{instance}
      */
-    public function setWebhook(string $webhookUrl, Lead $contact = null, CampaignExecutionEvent $event = null): array
+    public function setWebhook(string $webhookUrl, Lead $contact = null, CampaignExecutionEvent $event = null, ?string $instance = null): array
     {
         $data = [
             'webhook' => [
@@ -223,14 +348,14 @@ class EvolutionApiService
             ],
         ];
 
-        return $this->makeRequest('POST', '/webhook/set/' . $this->getInstance(), $data, $contact, $event, [], true);
+        return $this->makeRequest('POST', '/webhook/set/' . $this->resolveInstance($instance), $data, $contact, $event, [], true);
     }
 
     /**
      * Find messages in a chat
      * POST /chat/findMessages/{instance}
      */
-    public function getMessages(string $remoteJid, int $limit = 20, Lead $contact = null, CampaignExecutionEvent $event = null): array
+    public function getMessages(string $remoteJid, int $limit = 20, Lead $contact = null, CampaignExecutionEvent $event = null, ?string $instance = null): array
     {
         $data = [
             'where' => [
@@ -241,14 +366,14 @@ class EvolutionApiService
             'limit' => $limit,
         ];
 
-        return $this->makeRequest('POST', '/chat/findMessages/' . $this->getInstance(), $data, $contact, $event, [], false);
+        return $this->makeRequest('POST', '/chat/findMessages/' . $this->resolveInstance($instance), $data, $contact, $event, [], false);
     }
 
     /**
      * Mark message as read
      * POST /chat/markMessageAsRead/{instance}
      */
-    public function markAsRead(string $remoteJid, string $messageId, Lead $contact = null, CampaignExecutionEvent $event = null): array
+    public function markAsRead(string $remoteJid, string $messageId, Lead $contact = null, CampaignExecutionEvent $event = null, ?string $instance = null): array
     {
         $data = [
             'readMessages' => [
@@ -260,21 +385,21 @@ class EvolutionApiService
             ],
         ];
 
-        return $this->makeRequest('POST', '/chat/markMessageAsRead/' . $this->getInstance(), $data, $contact, $event, [], false);
+        return $this->makeRequest('POST', '/chat/markMessageAsRead/' . $this->resolveInstance($instance), $data, $contact, $event, [], false);
     }
 
     /**
      * Check whether numbers exist on WhatsApp
      * POST /chat/whatsappNumbers/{instance}
      */
-    public function checkWhatsAppNumber(string $number, Lead $contact = null, CampaignExecutionEvent $event = null): array
+    public function checkWhatsAppNumber(string $number, Lead $contact = null, CampaignExecutionEvent $event = null, ?string $instance = null): array
     {
         $normalized = $this->formatPhoneNumber($number);
         $data = [
             'numbers' => [$normalized],
         ];
 
-        $endpoint = '/chat/whatsappNumbers/' . $this->getInstance();
+        $endpoint = '/chat/whatsappNumbers/' . $this->resolveInstance($instance);
 
         try {
             $result = $this->makeRequest('POST', $endpoint, $data, $contact, $event, [], false);
@@ -337,23 +462,7 @@ class EvolutionApiService
             ];
         }
 
-        $instance = $this->getInstance();
-        if ($instance === '') {
-            $errorMessage = 'Evolution API instance name is not configured';
-            if ($event instanceof CampaignExecutionEvent) {
-                $event->setFailed($errorMessage);
-            }
-            $exception = new EvolutionApiException($errorMessage);
-            if ($throwOnError) {
-                throw $exception;
-            }
-
-            return [
-                'success' => false,
-                'error' => $errorMessage,
-            ];
-        }
-
+        // Instance is validated by callers for instance-scoped routes; fetchInstances has none.
         $url = rtrim($apiUrl, '/') . '/' . ltrim($endpoint, '/');
         $headers = [
             'Content-Type' => 'application/json',
@@ -370,7 +479,6 @@ class EvolutionApiService
                 'method' => $method,
                 'endpoint' => $endpoint,
                 'full_url' => $url,
-                'instance' => $instance,
                 'data' => $data,
             ]);
 
@@ -406,7 +514,7 @@ class EvolutionApiService
 
                 if ($contact instanceof Lead) {
                     $action = $this->getActionFromEndpoint($endpoint);
-                    if (in_array($action, ['Send Text Message', 'Send Media Message', 'Send Text With Group Balancing'], true)) {
+                    if (in_array($action, ['Send Text Message', 'Send Media Message', 'Send Template Message'], true)) {
                         $details = [
                             'action' => $action,
                             'status' => 'sent',
@@ -415,7 +523,7 @@ class EvolutionApiService
                             'response' => $responseData,
                             'messageId' => $this->extractMessageId($responseData),
                             'phone' => $data['number'] ?? null,
-                            'template' => $data['caption'] ?? ($data['text'] ?? null),
+                            'template' => $data['name'] ?? ($data['caption'] ?? ($data['text'] ?? null)),
                         ];
                         $this->logSuccessEvent($contact, $action, $details);
                     }
@@ -649,14 +757,20 @@ class EvolutionApiService
 
     private function getActionFromEndpoint(string $endpoint): string
     {
-        if (str_contains($endpoint, '/message/sendTextWithGroupBalancing')) {
-            return 'Send Text With Group Balancing';
+        if (str_contains($endpoint, '/message/sendTemplate')) {
+            return 'Send Template Message';
         }
         if (str_contains($endpoint, '/message/sendText')) {
             return 'Send Text Message';
         }
         if (str_contains($endpoint, '/message/sendMedia')) {
             return 'Send Media Message';
+        }
+        if (str_contains($endpoint, '/template/find')) {
+            return 'Find Templates';
+        }
+        if (str_contains($endpoint, '/instance/fetchInstances')) {
+            return 'Fetch Instances';
         }
         if (str_contains($endpoint, '/webhook/set')) {
             return 'Set Webhook';
@@ -727,14 +841,31 @@ class EvolutionApiService
     }
 
     /**
-     * Instance name used in v2 paths such as /message/sendText/{instance}
+     * Default instance from plugin settings.
      */
-    private function getInstance(): string
+    public function getConfiguredInstance(): string
     {
         $settings = $this->getIntegrationSettings();
-        $instance = trim((string) ($settings['evolution_instance'] ?? ''));
 
-        return $instance;
+        return trim((string) ($settings['evolution_instance'] ?? ''));
+    }
+
+    /**
+     * Resolve instance for path parameters. Explicit override wins over plugin default.
+     */
+    public function resolveInstance(?string $instance = null): string
+    {
+        $resolved = trim((string) ($instance ?? ''));
+        if ($resolved !== '') {
+            return $resolved;
+        }
+
+        $configured = $this->getConfiguredInstance();
+        if ($configured === '') {
+            throw new EvolutionApiException('Evolution API instance name is not configured');
+        }
+
+        return $configured;
     }
 
     private function getTimeout(): int
@@ -748,12 +879,42 @@ class EvolutionApiService
     {
         return !empty($this->getApiUrl())
             && !empty($this->getApiKey())
-            && !empty($this->getInstance());
+            && !empty($this->getConfiguredInstance());
     }
 
-    public function getInstanceStatus(CampaignExecutionEvent $event = null): array
+    public function getInstanceStatus(CampaignExecutionEvent $event = null, ?string $instance = null): array
     {
-        return $this->makeRequest('GET', '/instance/connectionState/' . $this->getInstance(), [], null, $event, [], false);
+        return $this->makeRequest(
+            'GET',
+            '/instance/connectionState/' . $this->resolveInstance($instance),
+            [],
+            null,
+            $event,
+            [],
+            false
+        );
+    }
+
+    /**
+     * @return array<int, array{name: string, status?: string, integration?: string}>
+     */
+    private function fallbackInstanceChoices(): array
+    {
+        $configured = $this->getConfiguredInstance();
+        if ($configured === '') {
+            return [];
+        }
+
+        return [['name' => $configured, 'status' => 'configured']];
+    }
+
+    private function isListArray(array $value): bool
+    {
+        if ($value === []) {
+            return true;
+        }
+
+        return array_keys($value) === range(0, count($value) - 1);
     }
 
     public function testConnection(CampaignExecutionEvent $event = null): array

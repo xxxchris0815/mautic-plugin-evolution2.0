@@ -267,25 +267,19 @@ Todas as variáveis de contato do Mautic podem ser utilizadas:
 - `{contactfield=company}` - Empresa
 - Campos personalizados: `{contactfield=nome_do_campo}`
 
-### Sistema de Templates
+### Sistema de Templates (WhatsApp Cloud / Evolution v2)
 
-#### Gerenciamento de Templates
-- **CRUD Completo**: Criar, editar, visualizar e excluir templates
-- **Preview**: Visualização prévia com dados de exemplo
-- **Clonagem**: Duplicar templates existentes
-- **Ativação/Desativação**: Controle de status dos templates
+Die Campaign-Action **Send WhatsApp Template** nutzt jetzt den Evolution-Endpoint:
 
-#### Estrutura de Template
-```json
-{
-  "id": 1,
-  "name": "Nome do Template",
-  "content": "Conteúdo com {contactfield=variavel}",
-  "isPublished": true,
-  "dateAdded": "2024-01-01T12:00:00Z",
-  "dateModified": "2024-01-01T12:00:00Z"
-}
-```
+`POST /message/sendTemplate/{instance}`
+
+- Templates werden live geladen: `GET /template/find/{instance}`
+- Nur Status `APPROVED` erscheint in der Auswahl
+- Variablen-Mapping im Action-Formular: Keys wie `body.1`, `header.1`, `button.0`
+- Werte unterstützen Mautic-Tokens (`{firstname}`, `{contactfield=email}`)
+- Pro Action muss die **Instance** gewählt werden (Default = Plugin-Setting)
+
+> Hinweis: Lokale Plugin-Templates unter „Evolution → Templates“ bleiben für Freitext-Vorlagen erhalten. Offizielle Meta-HSM-Templates kommen aus der Evolution/WhatsApp Cloud API.
 
 ### Sistema de Webhooks (Evolution API v2)
 
@@ -311,14 +305,16 @@ Webhook-Payload für Status-Updates enthält typischerweise `keyId` + `status` (
 
 #### Actions Disponíveis
 1. **Enviar Mensagem WhatsApp**
-   - Mensagem de texto personalizada
-   - Suporte a variáveis de contato
-   - Configuração de campo de telefone
+   - Freitext über `/message/sendText/{instance}`
+   - Instance-Auswahl
+   - Kontakt-Tokens
 
 2. **Enviar Template WhatsApp**
-   - Seleção de template pré-configurado
-   - Substituição automática de variáveis
-   - Validação de campos obrigatórios
+   - Offizielle WhatsApp-Business-Templates über `/message/sendTemplate/{instance}`
+   - Template-Liste + Variablen aus Evolution API
+   - Instance-Auswahl
+
+Load-/Group-Balancing wurde entfernt (nicht Teil von Evolution API v2).
 
 #### Configurações de Action
 ```php

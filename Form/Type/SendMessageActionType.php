@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace MauticPlugin\MauticEvolutionBundle\Form\Type;
 
+use Mautic\CoreBundle\Form\Type\SortableListType;
 use MauticPlugin\MauticEvolutionBundle\Service\EvolutionApiService;
 use Symfony\Component\Form\AbstractType;
 use Symfony\Component\Form\Extension\Core\Type\ChoiceType;
@@ -11,55 +12,43 @@ use Symfony\Component\Form\Extension\Core\Type\TextareaType;
 use Symfony\Component\Form\FormBuilderInterface;
 use Symfony\Component\OptionsResolver\OptionsResolver;
 use Symfony\Component\Validator\Constraints as Assert;
-use Mautic\CoreBundle\Form\Type\SortableListType;
 
 /**
- * Class SendMessageActionType
- * 
- * Formulário para action de envio de mensagem simples
+ * Campaign action form: send plain WhatsApp text via Evolution API v2.
  */
 class SendMessageActionType extends AbstractType
 {
-    private EvolutionApiService $evolutionApiService;
-
-    public function __construct(EvolutionApiService $evolutionApiService)
+    public function __construct(private EvolutionApiService $evolutionApiService)
     {
-        $this->evolutionApiService = $evolutionApiService;
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function buildForm(FormBuilderInterface $builder, array $options): void
     {
-        // Carrega grupos habilitados da Evolution API
-        $groupsResult = $this->evolutionApiService->getInstanceGroups();
-        $groupsError = !$groupsResult['success'];
-        $groupChoices = [];
-
-        if ($groupsResult['success'] && !empty($groupsResult['groups'])) {
-            foreach ($groupsResult['groups'] as $group) {
-                // Exibir 'name' e enviar 'alias'
-                if (!empty($group['name']) && !empty($group['alias'])) {
-                    $groupChoices[$group['name']] = $group['alias'];
-                }
-            }
+        $formData = is_array($options['data'] ?? null) ? $options['data'] : [];
+        $instanceChoices = $this->evolutionApiService->getInstanceChoices();
+        $defaultInstance = (string) ($formData['instance'] ?? $this->evolutionApiService->getConfiguredInstance());
+        if ($defaultInstance !== '' && !in_array($defaultInstance, $instanceChoices, true)) {
+            $instanceChoices[$defaultInstance] = $defaultInstance;
         }
 
         $builder
-            ->add('group_alias', ChoiceType::class, [
-                'label' => 'mautic.evolution.campaign.action.group.label',
-                'label_attr' => ['class' => 'control-label'],
+            ->add('instance', ChoiceType::class, [
+                'label' => 'mautic.evolution.campaign.action.instance',
+                'label_attr' => ['class' => 'control-label required'],
                 'attr' => [
-                    'class' => 'form-control',
-                    'tooltip' => 'mautic.evolution.campaign.action.group.tooltip',
-                    'data-groups-error' => $groupsError ? '1' : '0',
+                    'class' => 'form-control evolution-instance-select',
+                    'tooltip' => 'mautic.evolution.campaign.action.instance.tooltip',
                 ],
-                'placeholder' => 'mautic.evolution.campaign.action.group.placeholder',
-                'choices' => $groupChoices,
-                // Optional: when empty, uses Evolution API v2 /message/sendText/{instance}
-                'required' => false,
-                'help' => 'mautic.evolution.campaign.action.group.help',
+                'choices' => $instanceChoices,
+                'data' => $defaultInstance !== '' ? $defaultInstance : null,
+                'placeholder' => 'mautic.evolution.campaign.action.instance.placeholder',
+                'required' => true,
+                'constraints' => [
+                    new Assert\NotBlank([
+                        'message' => 'mautic.evolution.campaign.action.instance.notblank',
+                    ]),
+                ],
+                'help' => 'mautic.evolution.campaign.action.instance.help',
             ])
             ->add('message', TextareaType::class, [
                 'label' => 'mautic.evolution.campaign.action.message.content',
@@ -119,9 +108,6 @@ class SendMessageActionType extends AbstractType
             );
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function configureOptions(OptionsResolver $resolver): void
     {
         $resolver->setDefaults([
@@ -129,9 +115,6 @@ class SendMessageActionType extends AbstractType
         ]);
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function getBlockPrefix(): string
     {
         return 'evolution_send_message_action';

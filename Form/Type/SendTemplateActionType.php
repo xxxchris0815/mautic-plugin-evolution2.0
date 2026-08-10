@@ -5,75 +5,108 @@ declare(strict_types=1);
 namespace MauticPlugin\MauticEvolutionBundle\Form\Type;
 
 use Mautic\CoreBundle\Form\Type\SortableListType;
-use MauticPlugin\MauticEvolutionBundle\Model\TemplateModel;
 use MauticPlugin\MauticEvolutionBundle\Service\EvolutionApiService;
 use Symfony\Component\Form\AbstractType;
 use Symfony\Component\Form\Extension\Core\Type\ChoiceType;
+use Symfony\Component\Form\Extension\Core\Type\HiddenType;
 use Symfony\Component\Form\FormBuilderInterface;
 use Symfony\Component\OptionsResolver\OptionsResolver;
 use Symfony\Component\Validator\Constraints as Assert;
 
 /**
- * Class SendTemplateActionType
- * 
- * Formulário para action de envio de template
+ * Campaign action form: send WhatsApp Business Cloud templates via Evolution API v2.
  */
 class SendTemplateActionType extends AbstractType
 {
-    public function __construct(
-        private TemplateModel $templateModel,
-        private EvolutionApiService $evolutionApiService
-    ) {
+    public function __construct(private EvolutionApiService $evolutionApiService)
+    {
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function buildForm(FormBuilderInterface $builder, array $options): void
     {
-        // Carrega grupos habilitados da Evolution API
-        $groupsResult = $this->evolutionApiService->getInstanceGroups();
-        $groupsError = !$groupsResult['success'];
-        $groupChoices = [];
+        $formData = is_array($options['data'] ?? null) ? $options['data'] : [];
+        $instanceChoices = $this->evolutionApiService->getInstanceChoices();
+        $defaultInstance = (string) ($formData['instance'] ?? $this->evolutionApiService->getConfiguredInstance());
+        if ($defaultInstance !== '' && !in_array($defaultInstance, $instanceChoices, true)) {
+            $instanceChoices[$defaultInstance] = $defaultInstance;
+        }
 
-        if ($groupsResult['success'] && !empty($groupsResult['groups'])) {
-            foreach ($groupsResult['groups'] as $group) {
-                if (!empty($group['name']) && !empty($group['alias'])) {
-                    $groupChoices[$group['name']] = $group['alias'];
-                }
+        $templatesResult = $this->evolutionApiService->findTemplates($defaultInstance !== '' ? $defaultInstance : null, true);
+        $templateChoices = $templatesResult['choices'] ?? [];
+        $existingTemplate = (string) ($formData['template'] ?? '');
+        if ($existingTemplate !== '' && !in_array($existingTemplate, $templateChoices, true)) {
+            $templateChoices[$existingTemplate] = $existingTemplate;
+        }
+
+        $catalog = [];
+        foreach ($templatesResult['templates'] ?? [] as $template) {
+            $name = (string) ($template['name'] ?? '');
+            $language = (string) ($template['language'] ?? '');
+            if ($name === '' || $language === '') {
+                continue;
             }
+            $key = $name . '|' . $language;
+            $catalog[$key] = [
+                'name' => $name,
+                'language' => $language,
+                'status' => $template['status'] ?? null,
+                'category' => $template['category'] ?? null,
+                'variables' => $this->evolutionApiService->getTemplateHelper()->extractVariables($template),
+            ];
         }
 
         $builder
-            ->add('group_alias', ChoiceType::class, [
-                'label' => 'mautic.evolution.campaign.action.group.label',
-                'label_attr' => ['class' => 'control-label'],
+            ->add('instance', ChoiceType::class, [
+                'label' => 'mautic.evolution.campaign.action.instance',
+                'label_attr' => ['class' => 'control-label required'],
                 'attr' => [
-                    'class' => 'form-control',
-                    'tooltip' => 'mautic.evolution.campaign.action.group.tooltip',
-                    'data-groups-error' => $groupsError ? '1' : '0',
+                    'class' => 'form-control evolution-instance-select',
+                    'tooltip' => 'mautic.evolution.campaign.action.instance.tooltip',
+                    'data-templates-url' => '/s/evolution/ajax/templates',
                 ],
-                'placeholder' => 'mautic.evolution.campaign.action.group.placeholder',
-                'choices' => $groupChoices,
-                // Optional: when empty, uses Evolution API v2 /message/sendText/{instance}
-                'required' => false,
-                'help' => 'mautic.evolution.campaign.action.group.help',
+                'choices' => $instanceChoices,
+                'data' => $defaultInstance !== '' ? $defaultInstance : null,
+                'placeholder' => 'mautic.evolution.campaign.action.instance.placeholder',
+                'required' => true,
+                'constraints' => [
+                    new Assert\NotBlank([
+                        'message' => 'mautic.evolution.campaign.action.instance.notblank',
+                    ]),
+                ],
+                'help' => 'mautic.evolution.campaign.action.instance.help',
             ])
             ->add('template', ChoiceType::class, [
                 'label' => 'mautic.evolution.campaign.action.template.select',
                 'label_attr' => ['class' => 'control-label required'],
                 'attr' => [
-                    'class' => 'form-control',
+                    'class' => 'form-control evolution-template-select',
                     'tooltip' => 'mautic.evolution.campaign.action.template.select.tooltip',
+                    'data-template-catalog' => json_encode($catalog, JSON_UNESCAPED_UNICODE) ?: '{}',
+                    'data-templates-error' => !empty($templatesResult['success']) ? '0' : '1',
                 ],
-                'choices' => $this->getTemplateChoices(),
+                'choices' => $templateChoices,
                 'placeholder' => 'mautic.evolution.campaign.action.template.select.placeholder',
                 'constraints' => [
                     new Assert\NotBlank([
                         'message' => 'mautic.evolution.campaign.action.template.select.notblank',
                     ]),
                 ],
+                'help' => 'mautic.evolution.campaign.action.template.select.help',
             ])
+            ->add(
+                'variables',
+                SortableListType::class,
+                [
+                    'label' => 'mautic.evolution.campaign.action.template.variables',
+                    'required' => false,
+                    'option_required' => false,
+                    'with_labels' => true,
+                    'key_value_pairs' => true,
+                    'attr' => [
+                        'class' => 'evolution-template-variables',
+                    ],
+                ]
+            )
             ->add('phone_field', ChoiceType::class, [
                 'label' => 'mautic.evolution.campaign.action.phone_field',
                 'label_attr' => ['class' => 'control-label'],
@@ -88,7 +121,15 @@ class SendTemplateActionType extends AbstractType
                 'data' => 'mobile',
                 'required' => false,
             ])
-                ->add(
+            ->add('template_catalog_json', HiddenType::class, [
+                'mapped' => false,
+                'required' => false,
+                'data' => json_encode($catalog, JSON_UNESCAPED_UNICODE) ?: '{}',
+                'attr' => [
+                    'class' => 'evolution-template-catalog-json',
+                ],
+            ])
+            ->add(
                 'headers',
                 SortableListType::class,
                 [
@@ -98,23 +139,9 @@ class SendTemplateActionType extends AbstractType
                     'with_labels' => true,
                     'key_value_pairs' => true,
                 ]
-            )
-            ->add(
-                'data',
-                SortableListType::class,
-                [
-                    'label' => 'mautic.evolution.campaign.action.data',
-                    'required' => false,
-                    'option_required' => false,
-                    'with_labels' => true,
-                    'key_value_pairs' => true,
-                ]
             );
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function configureOptions(OptionsResolver $resolver): void
     {
         $resolver->setDefaults([
@@ -122,23 +149,8 @@ class SendTemplateActionType extends AbstractType
         ]);
     }
 
-    /**
-     * {@inheritdoc}
-     */
     public function getBlockPrefix(): string
     {
         return 'evolution_send_template_action';
-    }
-
-    /**
-     * Retorna choices de templates ativos
-     */
-    private function getTemplateChoices(): array
-    {
-        try {
-            return $this->templateModel->getTemplateChoices();
-        } catch (\Exception $e) {
-            return [];
-        }
     }
 }

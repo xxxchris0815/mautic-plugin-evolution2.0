@@ -38,6 +38,15 @@ return [
                 'path'       => '/evolution/templates/preview/{objectId}',
                 'controller' => 'MauticPlugin\MauticEvolutionBundle\Controller\TemplateController::previewAction',
             ],
+            'mautic_evolution_ajax_instances' => [
+                'path'       => '/evolution/ajax/instances',
+                'controller' => 'MauticPlugin\MauticEvolutionBundle\Controller\AjaxController::instancesAction',
+            ],
+            'mautic_evolution_ajax_templates' => [
+                'path'       => '/evolution/ajax/templates/{instance}',
+                'controller' => 'MauticPlugin\MauticEvolutionBundle\Controller\AjaxController::templatesAction',
+                'defaults'   => ['instance' => null],
+            ],
         ],
         'public' => [
             'mautic_evolution_webhook_receive' => [

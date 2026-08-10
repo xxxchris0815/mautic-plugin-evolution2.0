@@ -58,32 +58,35 @@ class MessageModel extends FormModel
     }
 
     /**
-     * Send message via Evolution API
+     * Send plain text via Evolution API v2 /message/sendText/{instance}
      */
-    public function sendMessage(Lead $lead, string $message, ?string $templateName = null, ?string $groupAlias = null, string $phoneField = 'mobile', array $headers = [], array $metadata = []): ?EvolutionMessage
-    {
+    public function sendMessage(
+        Lead $lead,
+        string $message,
+        ?string $templateName = null,
+        ?string $instance = null,
+        string $phoneField = 'mobile',
+        array $headers = [],
+        array $metadata = []
+    ): ?EvolutionMessage {
         $phoneNumber = $this->getLeadPhoneNumber($lead, $phoneField);
-        
+
         if (empty($phoneNumber)) {
             $this->logger->warning('Cannot send Evolution message: Lead has no phone number', ['leadId' => $lead->getId()]);
+
             return null;
         }
 
+        $evolutionMessage = null;
+
         try {
-            // Interpolate tokens in message content using lead data
             $leadData = $lead->getProfileFields();
-            
-            // First, handle simple tokens like {firstname} by converting them to {contactfield=firstname}
             $message = preg_replace('/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/', '{contactfield=$1}', $message);
-            
-            // Then use TokenHelper to replace the tokens
             $interpolatedMessage = TokenHelper::findLeadTokens($message, $leadData, true);
 
-            // Parse headers and metadata with lead tokens
             $parsedHeaders = $this->interpolateTokensInMap($headers, $lead);
             $parsedMetadata = $this->interpolateTokensInMap($metadata, $lead, false);
 
-            // Create message entity
             $evolutionMessage = new EvolutionMessage();
             $evolutionMessage->setLead($lead);
             $evolutionMessage->setPhoneNumber($phoneNumber);
@@ -94,92 +97,149 @@ class MessageModel extends FormModel
                 $evolutionMessage->setMetadata($parsedMetadata);
             }
 
-            // Evolution API v2: POST /message/sendText/{instance}
-            // Optional custom group balancing when alias is provided
-            if (!empty($groupAlias)) {
-                $response = $this->evolutionApiService->sendTextWithGroupBalancing(
-                    $groupAlias,
-                    $phoneNumber,
-                    $interpolatedMessage,
-                    [],
-                    $lead,
-                    null,
-                    $parsedHeaders,
-                    $parsedMetadata
-                );
-            } else {
-                $response = $this->evolutionApiService->sendTextMessage(
-                    $phoneNumber,
-                    $interpolatedMessage,
-                    $lead,
-                    null,
-                    $parsedHeaders,
-                    $parsedMetadata
-                );
-            }
+            $response = $this->evolutionApiService->sendTextMessage(
+                $phoneNumber,
+                $interpolatedMessage,
+                $lead,
+                null,
+                $parsedHeaders,
+                $parsedMetadata,
+                $instance
+            );
 
-            $messageId = $response['data']['key']['id']
-                ?? ($response['data']['data']['key']['id'] ?? null);
-
-            if ($messageId) {
-                $evolutionMessage->setMessageId($messageId);
-                $evolutionMessage->setStatus('sent');
-                $evolutionMessage->setSentAt(new \DateTime());
-                if (method_exists($evolutionMessage, 'setSentReceipt')) {
-                    $evolutionMessage->setSentReceipt(is_array($response['data'] ?? null) ? $response['data'] : null);
-                }
-            } else {
-                $evolutionMessage->setStatus('failed');
-                $evolutionMessage->setErrorMessage($response['error'] ?? 'Failed to send message via Evolution API');
-            }
-
-            $this->saveEntity($evolutionMessage);
-
-            if ($evolutionMessage->getStatus() === 'failed') {
-                throw new EvolutionDeliveryException(
-                    $evolutionMessage->getErrorMessage() ?? 'Failed to send message via Evolution API'
-                );
-            }
-
-            return $evolutionMessage;
+            return $this->finalizeSentMessage($evolutionMessage, $response);
         } catch (EvolutionDeliveryException|EvolutionApiException $e) {
-            $this->logger->error('Evolution delivery failed', [
-                'leadId' => $lead->getId(),
-                'error' => $e->getMessage(),
-            ]);
-
-            if (isset($evolutionMessage) && $evolutionMessage instanceof EvolutionMessage) {
-                $evolutionMessage->setStatus('failed');
-                $evolutionMessage->setErrorMessage($e->getMessage());
-                try {
-                    $this->saveEntity($evolutionMessage);
-                } catch (\Exception $saveException) {
-                    $this->logger->error('Failed to persist failed Evolution message', [
-                        'error' => $saveException->getMessage(),
-                    ]);
-                }
-            }
-
+            $this->persistFailure($evolutionMessage, $lead, $e->getMessage());
             throw $e;
         } catch (\Exception $e) {
-            $this->logger->error('Error sending Evolution message', [
-                'leadId' => $lead->getId(),
-                'error' => $e->getMessage(),
-            ]);
+            $this->persistFailure($evolutionMessage, $lead, $e->getMessage());
+            throw new EvolutionDeliveryException($e->getMessage(), (int) $e->getCode(), $e);
+        }
+    }
 
-            if (isset($evolutionMessage) && $evolutionMessage instanceof EvolutionMessage) {
-                $evolutionMessage->setStatus('failed');
-                $evolutionMessage->setErrorMessage($e->getMessage());
-                try {
-                    $this->saveEntity($evolutionMessage);
-                } catch (\Exception $saveException) {
-                    $this->logger->error('Failed to persist failed Evolution message', [
-                        'error' => $saveException->getMessage(),
-                    ]);
-                }
+    /**
+     * Send WhatsApp Business Cloud template via /message/sendTemplate/{instance}
+     *
+     * @param array<string, string> $variables Map like body.1 => value/token
+     */
+    public function sendWhatsAppTemplate(
+        Lead $lead,
+        string $templateName,
+        string $language,
+        array $variables = [],
+        ?string $instance = null,
+        string $phoneField = 'mobile',
+        array $headers = []
+    ): ?EvolutionMessage {
+        $phoneNumber = $this->getLeadPhoneNumber($lead, $phoneField);
+        if (empty($phoneNumber)) {
+            $this->logger->warning('Cannot send Evolution template: Lead has no phone number', ['leadId' => $lead->getId()]);
+
+            return null;
+        }
+
+        $evolutionMessage = null;
+
+        try {
+            $parsedHeaders = $this->interpolateTokensInMap($headers, $lead);
+            $parsedVariables = $this->interpolateTokensInMap($variables, $lead, true);
+
+            $templateDefinition = null;
+            $templatesResult = $this->evolutionApiService->findTemplates($instance, false);
+            if (($templatesResult['success'] ?? false) === true) {
+                $templateDefinition = $this->evolutionApiService
+                    ->getTemplateHelper()
+                    ->findTemplate($templatesResult['templates'], $templateName, $language);
             }
 
+            $components = $this->evolutionApiService
+                ->getTemplateHelper()
+                ->buildComponents($parsedVariables, $templateDefinition);
+
+            $evolutionMessage = new EvolutionMessage();
+            $evolutionMessage->setLead($lead);
+            $evolutionMessage->setPhoneNumber($phoneNumber);
+            $evolutionMessage->setMessageContent(sprintf('Template: %s (%s)', $templateName, $language));
+            $evolutionMessage->setTemplateName($templateName);
+            $evolutionMessage->setStatus('pending');
+            $evolutionMessage->setMetadata([
+                'language' => $language,
+                'instance' => $instance,
+                'variables' => $parsedVariables,
+                'components' => $components,
+            ]);
+
+            $response = $this->evolutionApiService->sendTemplateMessage(
+                $phoneNumber,
+                $templateName,
+                $language,
+                $components,
+                $lead,
+                null,
+                $parsedHeaders,
+                $instance
+            );
+
+            return $this->finalizeSentMessage($evolutionMessage, $response);
+        } catch (EvolutionDeliveryException|EvolutionApiException $e) {
+            $this->persistFailure($evolutionMessage, $lead, $e->getMessage());
+            throw $e;
+        } catch (\Exception $e) {
+            $this->persistFailure($evolutionMessage, $lead, $e->getMessage());
             throw new EvolutionDeliveryException($e->getMessage(), (int) $e->getCode(), $e);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $response
+     */
+    private function finalizeSentMessage(EvolutionMessage $evolutionMessage, array $response): EvolutionMessage
+    {
+        $messageId = $response['data']['key']['id']
+            ?? ($response['data']['data']['key']['id'] ?? null);
+
+        if ($messageId) {
+            $evolutionMessage->setMessageId($messageId);
+            $evolutionMessage->setStatus('sent');
+            $evolutionMessage->setSentAt(new \DateTime());
+            if (method_exists($evolutionMessage, 'setSentReceipt')) {
+                $evolutionMessage->setSentReceipt(is_array($response['data'] ?? null) ? $response['data'] : null);
+            }
+        } else {
+            $evolutionMessage->setStatus('failed');
+            $evolutionMessage->setErrorMessage($response['error'] ?? 'Failed to send message via Evolution API');
+        }
+
+        $this->saveEntity($evolutionMessage);
+
+        if ($evolutionMessage->getStatus() === 'failed') {
+            throw new EvolutionDeliveryException(
+                $evolutionMessage->getErrorMessage() ?? 'Failed to send message via Evolution API'
+            );
+        }
+
+        return $evolutionMessage;
+    }
+
+    private function persistFailure(?EvolutionMessage $evolutionMessage, Lead $lead, string $error): void
+    {
+        $this->logger->error('Evolution delivery failed', [
+            'leadId' => $lead->getId(),
+            'error' => $error,
+        ]);
+
+        if (!$evolutionMessage instanceof EvolutionMessage) {
+            return;
+        }
+
+        $evolutionMessage->setStatus('failed');
+        $evolutionMessage->setErrorMessage($error);
+        try {
+            $this->saveEntity($evolutionMessage);
+        } catch (\Exception $saveException) {
+            $this->logger->error('Failed to persist failed Evolution message', [
+                'error' => $saveException->getMessage(),
+            ]);
         }
     }
 

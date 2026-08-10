@@ -11,8 +11,8 @@ import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-UPSTREAM = "https://wa.orgasmic.live"
-LISTEN_PORT = 8082
+UPSTREAM = os.environ.get("EVOLUTION_UPSTREAM", "https://example.invalid").rstrip("/")
+LISTEN_PORT = int(os.environ.get("EVOLUTION_PROXY_PORT", "8082"))
 HOP_BY_HOP = {
     "connection",
     "keep-alive",

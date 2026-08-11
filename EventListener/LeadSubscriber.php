@@ -95,12 +95,22 @@ class LeadSubscriber implements EventSubscriberInterface
     private function checkWhatsAppNumber(string $phoneNumber, int $leadId): void
     {
         try {
-            $result = $this->evolutionApiService->checkWhatsAppNumber($phoneNumber);
+            $instance = $this->evolutionApiService->getFirstAvailableInstance();
+            if ($instance === '') {
+                $this->logger->info('WhatsApp check skipped: no Evolution instance available', [
+                    'lead_id' => $leadId,
+                ]);
+
+                return;
+            }
+
+            $result = $this->evolutionApiService->checkWhatsAppNumber($phoneNumber, null, null, $instance);
             
             if ($result && isset($result['exists'])) {
                 $this->logger->info('Número WhatsApp verificado', [
                     'lead_id' => $leadId,
                     'phone' => $phoneNumber,
+                    'instance' => $instance,
                     'exists' => $result['exists'],
                 ]);
             }
@@ -109,6 +119,7 @@ class LeadSubscriber implements EventSubscriberInterface
                 $this->logger->warning('WhatsApp check failed', [
                     'lead_id' => $leadId,
                     'phone' => $phoneNumber,
+                    'instance' => $instance,
                     'status_code' => $result['status_code'] ?? null,
                     'error' => $result['error'] ?? null,
                 ]);

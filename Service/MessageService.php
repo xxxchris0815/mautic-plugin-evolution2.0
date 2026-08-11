@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace MauticPlugin\MauticEvolutionBundle\Service;
 
-use MauticPlugin\MauticEvolutionBundle\Entity\EvolutionMessage;
-use MauticPlugin\MauticEvolutionBundle\Entity\EvolutionTemplate;
-use MauticPlugin\MauticEvolutionBundle\Model\TemplateModel;
-
 use Mautic\LeadBundle\Entity\Lead;
+use MauticPlugin\MauticEvolutionBundle\Entity\EvolutionMessage;
+use MauticPlugin\MauticEvolutionBundle\Exception\EvolutionApiException;
+use MauticPlugin\MauticEvolutionBundle\Exception\EvolutionDeliveryException;
+use MauticPlugin\MauticEvolutionBundle\Model\TemplateModel;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -65,47 +65,45 @@ class MessageService
         }
 
         try {
-            // Envia mensagem via Evolution API
             $response = $this->evolutionApiService->sendTextMessage($phoneNumber, $processedMessage, $lead, null, $headers, $metadata);
 
-            if ($response['success']) {
-                $evolutionMessage->setStatus('sent');
-                $evolutionMessage->setSentAt(new \DateTime());
-                
-                if (isset($response['data']['key']['id'])) {
-                    $evolutionMessage->setMessageId($response['data']['key']['id']);
-                }
+            $evolutionMessage->setStatus('sent');
+            $evolutionMessage->setSentAt(new \DateTime());
 
-                $this->logger->info('Mensagem enviada com sucesso', [
-                    'lead_id' => $lead->getId(),
-                    'phone' => $phoneNumber,
-                    'message_id' => $evolutionMessage->getMessageId(),
-                    'headers_keys' => array_keys($headers),
-                    'metadata_keys' => array_keys($metadata),
-                ]);
-            } else {
-                $evolutionMessage->setStatus('failed');
-                $evolutionMessage->setErrorMessage($response['error'] ?? 'Erro desconhecido');
-
-                $this->logger->error('Falha ao enviar mensagem', [
-                    'lead_id' => $lead->getId(),
-                    'phone' => $phoneNumber,
-                    'error' => $response['error'] ?? 'Erro desconhecido',
-                    'headers_keys' => array_keys($headers),
-                    'metadata_keys' => array_keys($metadata),
-                ]);
+            if (isset($response['data']['key']['id'])) {
+                $evolutionMessage->setMessageId($response['data']['key']['id']);
             }
+
+            $this->logger->info('Message sent successfully', [
+                'lead_id' => $lead->getId(),
+                'phone' => $phoneNumber,
+                'message_id' => $evolutionMessage->getMessageId(),
+                'headers_keys' => array_keys($headers),
+                'metadata_keys' => array_keys($metadata),
+            ]);
+        } catch (EvolutionDeliveryException|EvolutionApiException $e) {
+            $evolutionMessage->setStatus('failed');
+            $evolutionMessage->setErrorMessage($e->getMessage());
+
+            $this->logger->error('Failed to send message', [
+                'lead_id' => $lead->getId(),
+                'phone' => $phoneNumber,
+                'error' => $e->getMessage(),
+                'status_code' => $e->getStatusCode(),
+            ]);
+
+            throw $e;
         } catch (\Exception $e) {
             $evolutionMessage->setStatus('failed');
             $evolutionMessage->setErrorMessage($e->getMessage());
 
-            $this->logger->error('Exceção ao enviar mensagem', [
+            $this->logger->error('Exception while sending message', [
                 'lead_id' => $lead->getId(),
                 'phone' => $phoneNumber,
                 'exception' => $e->getMessage(),
-                'headers_keys' => array_keys($headers),
-                'metadata_keys' => array_keys($metadata),
             ]);
+
+            throw new EvolutionDeliveryException($e->getMessage(), (int) $e->getCode(), $e);
         }
 
         return $evolutionMessage;
@@ -114,40 +112,49 @@ class MessageService
     /**
      * Envia mensagem simples para um lead (com suporte a group alias e phone_field)
      */
-    public function sendMessage(Lead $lead, string $message, ?string $groupAlias = null, string $phoneField = 'mobile'): array
+    public function sendMessage(Lead $lead, string $message, ?string $instance = null, string $phoneField = 'mobile'): array
     {
         try {
             $phoneNumber = $this->getLeadPhoneNumber($lead, $phoneField);
-            
+
             if (empty($phoneNumber)) {
                 return [
                     'success' => false,
-                    'error' => 'Número de telefone não encontrado no lead',
+                    'error' => 'Phone number not found on lead',
                 ];
             }
 
-            // Processa tokens na mensagem
             $processedMessage = $this->processMessageTokens($message, $lead);
-
-            // Envia mensagem via Evolution API
-            if (!empty($groupAlias)) {
-                $result = $this->evolutionApiService->sendTextWithGroupBalancing($groupAlias, $phoneNumber, $processedMessage, [], $lead);
-            } else {
-                $result = $this->evolutionApiService->sendTextMessage($phoneNumber, $processedMessage, $lead);
-            }
-
-            // Registra mensagem no banco
-            // removed $this->logMessage call (method not defined)
+            $result = $this->evolutionApiService->sendTextMessage(
+                $phoneNumber,
+                $processedMessage,
+                $lead,
+                null,
+                [],
+                [],
+                $instance
+            );
 
             return [
-                'success' => $result['success'] ?? false,
+                'success' => true,
                 'message_id' => $result['data']['key']['id'] ?? null,
                 'data' => $result['data'] ?? null,
-                'error' => $result['error'] ?? null,
+                'error' => null,
             ];
+        } catch (EvolutionDeliveryException|EvolutionApiException $e) {
+            $this->logger->error('Error sending message', [
+                'lead_id' => $lead->getId(),
+                'error' => $e->getMessage(),
+                'status_code' => $e->getStatusCode(),
+            ]);
 
+            return [
+                'success' => false,
+                'error' => $e->getMessage(),
+                'status_code' => $e->getStatusCode(),
+            ];
         } catch (\Exception $e) {
-            $this->logger->error('Erro ao enviar mensagem', [
+            $this->logger->error('Error sending message', [
                 'lead_id' => $lead->getId(),
                 'message' => $message,
                 'error' => $e->getMessage(),
@@ -187,21 +194,29 @@ class MessageService
             // Renderiza template com dados do lead
             $renderedContent = $this->templateModel->renderTemplate($template, $this->prepareTemplateVariables($lead));
 
-            // Envia mensagem via Evolution API
             $result = $this->evolutionApiService->sendTextMessage($phoneNumber, $renderedContent, $lead);
 
-            // Registra mensagem no banco
-            // removed $this->logMessage call (method not defined)
-
             return [
-                'success' => $result['success'] ?? false,
+                'success' => true,
                 'message_id' => $result['data']['key']['id'] ?? null,
                 'data' => $result['data'] ?? null,
-                'error' => $result['error'] ?? null,
+                'error' => null,
             ];
+        } catch (EvolutionDeliveryException|EvolutionApiException $e) {
+            $this->logger->error('Error sending template', [
+                'lead_id' => $lead->getId(),
+                'template_id' => $templateId,
+                'error' => $e->getMessage(),
+                'status_code' => $e->getStatusCode(),
+            ]);
 
+            return [
+                'success' => false,
+                'error' => $e->getMessage(),
+                'status_code' => $e->getStatusCode(),
+            ];
         } catch (\Exception $e) {
-            $this->logger->error('Erro ao enviar template', [
+            $this->logger->error('Error sending template', [
                 'lead_id' => $lead->getId(),
                 'template_id' => $templateId,
                 'error' => $e->getMessage(),
@@ -262,43 +277,37 @@ class MessageService
         ]);
 
         try {
-            // Envia mensagem via Evolution API
             $response = $this->evolutionApiService->sendTextMessage($phoneNumber, $processedMessage, $lead);
 
-            if ($response['success']) {
-                $evolutionMessage->setStatus('sent');
-                $evolutionMessage->setSentAt(new \DateTime());
-                
-                if (isset($response['data']['key']['id'])) {
-                    $evolutionMessage->setMessageId($response['data']['key']['id']);
-                }
+            $evolutionMessage->setStatus('sent');
+            $evolutionMessage->setSentAt(new \DateTime());
 
-                $this->logger->info('Mensagem enviada com sucesso', [
-                    'lead_id' => $lead->getId(),
-                    'phone' => $phoneNumber,
-                    'message_id' => $evolutionMessage->getMessageId(),
-                ]);
-            } else {
-                $evolutionMessage->setStatus('failed');
-                $evolutionMessage->setErrorMessage($response['error'] ?? 'Erro desconhecido');
-
-                $this->logger->error('Falha ao enviar mensagem de template', [
-                    'lead_id' => $lead->getId(),
-                    'phone' => $phoneNumber,
-                    'template' => $templateName,
-                    'error' => $response['error'] ?? 'Erro desconhecido',
-                ]);
+            if (isset($response['data']['key']['id'])) {
+                $evolutionMessage->setMessageId($response['data']['key']['id']);
             }
+
+            $this->logger->info('Template message sent successfully', [
+                'lead_id' => $lead->getId(),
+                'phone' => $phoneNumber,
+                'message_id' => $evolutionMessage->getMessageId(),
+            ]);
+        } catch (EvolutionDeliveryException|EvolutionApiException $e) {
+            $evolutionMessage->setStatus('failed');
+            $evolutionMessage->setErrorMessage($e->getMessage());
+
+            $this->logger->error('Failed to send template message', [
+                'lead_id' => $lead->getId(),
+                'phone' => $phoneNumber,
+                'template' => $templateName,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
         } catch (\Exception $e) {
             $evolutionMessage->setStatus('failed');
             $evolutionMessage->setErrorMessage($e->getMessage());
 
-            $this->logger->error('Exceção ao enviar mensagem de template', [
-                'lead_id' => $lead->getId(),
-                'phone' => $phoneNumber,
-                'template' => $templateName,
-                'exception' => $e->getMessage(),
-            ]);
+            throw new EvolutionDeliveryException($e->getMessage(), (int) $e->getCode(), $e);
         }
 
         return $evolutionMessage;
@@ -330,44 +339,45 @@ class MessageService
         ]);
 
         try {
-            // Envia mídia via Evolution API
-            $response = $this->evolutionApiService->sendMediaMessage($phoneNumber, $mediaUrl, $processedCaption, $lead);
+            $response = $this->evolutionApiService->sendMediaMessage(
+                $phoneNumber,
+                $mediaUrl,
+                $processedCaption,
+                $lead,
+                null,
+                $mediaType
+            );
 
-            if ($response['success']) {
-                $evolutionMessage->setStatus('sent');
-                $evolutionMessage->setSentAt(new \DateTime());
-                
-                if (isset($response['data']['key']['id'])) {
-                    $evolutionMessage->setMessageId($response['data']['key']['id']);
-                }
+            $evolutionMessage->setStatus('sent');
+            $evolutionMessage->setSentAt(new \DateTime());
 
-                $this->logger->info('Mídia enviada com sucesso', [
-                    'lead_id' => $lead->getId(),
-                    'phone' => $phoneNumber,
-                    'media_type' => $mediaType,
-                    'message_id' => $evolutionMessage->getMessageId(),
-                ]);
-            } else {
-                $evolutionMessage->setStatus('failed');
-                $evolutionMessage->setErrorMessage($response['error'] ?? 'Erro desconhecido');
-
-                $this->logger->error('Falha ao enviar mídia', [
-                    'lead_id' => $lead->getId(),
-                    'phone' => $phoneNumber,
-                    'media_type' => $mediaType,
-                    'error' => $response['error'] ?? 'Erro desconhecido',
-                ]);
+            if (isset($response['data']['key']['id'])) {
+                $evolutionMessage->setMessageId($response['data']['key']['id']);
             }
+
+            $this->logger->info('Media sent successfully', [
+                'lead_id' => $lead->getId(),
+                'phone' => $phoneNumber,
+                'media_type' => $mediaType,
+                'message_id' => $evolutionMessage->getMessageId(),
+            ]);
+        } catch (EvolutionDeliveryException|EvolutionApiException $e) {
+            $evolutionMessage->setStatus('failed');
+            $evolutionMessage->setErrorMessage($e->getMessage());
+
+            $this->logger->error('Failed to send media', [
+                'lead_id' => $lead->getId(),
+                'phone' => $phoneNumber,
+                'media_type' => $mediaType,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
         } catch (\Exception $e) {
             $evolutionMessage->setStatus('failed');
             $evolutionMessage->setErrorMessage($e->getMessage());
 
-            $this->logger->error('Exceção ao enviar mídia', [
-                'lead_id' => $lead->getId(),
-                'phone' => $phoneNumber,
-                'media_type' => $mediaType,
-                'exception' => $e->getMessage(),
-            ]);
+            throw new EvolutionDeliveryException($e->getMessage(), (int) $e->getCode(), $e);
         }
 
         return $evolutionMessage;
@@ -392,12 +402,11 @@ class MessageService
     }
 
     /**
-     * Limpa e formata número de telefone
+     * Digits only, country code included, no leading '+'.
      */
     private function cleanPhoneNumber(string $phone): string
     {
-        // Remove caracteres não numéricos
-        return preg_replace('/[^0-9]/', '', $phone);
+        return $this->evolutionApiService->formatPhoneNumber($phone);
     }
 
     /**

@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 return [
     'name'        => 'Evolution Bundle',
-    'description' => 'Provides evolution templates functionality for Mautic.',
-    'version'     => '1.0',
+    'description' => 'Mautic integration for Evolution API v2.x (WhatsApp messaging).',
+    'version'     => '2.1.2',
     'author'      => 'Evolution Team',
 
     'routes' => [
@@ -37,6 +37,15 @@ return [
             'mautic_evolution_template_preview' => [
                 'path'       => '/evolution/templates/preview/{objectId}',
                 'controller' => 'MauticPlugin\MauticEvolutionBundle\Controller\TemplateController::previewAction',
+            ],
+            'mautic_evolution_ajax_instances' => [
+                'path'       => '/evolution/ajax/instances',
+                'controller' => 'MauticPlugin\MauticEvolutionBundle\Controller\AjaxController::instancesAction',
+            ],
+            'mautic_evolution_ajax_templates' => [
+                'path'       => '/evolution/ajax/templates/{instance}',
+                'controller' => 'MauticPlugin\MauticEvolutionBundle\Controller\AjaxController::templatesAction',
+                'defaults'   => ['instance' => null],
             ],
         ],
         'public' => [

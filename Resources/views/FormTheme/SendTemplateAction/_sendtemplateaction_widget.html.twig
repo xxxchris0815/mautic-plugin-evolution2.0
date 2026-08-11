@@ -1,69 +1,69 @@
 {% block evolution_send_template_action_widget %}
-    <div class="evolution-send-template-widget">
+    <div class="evolution-send-template-widget" data-evolution-template-action="1">
         <div class="form-group">
-            {{ form_label(form.group_alias) }}
-            {{ form_widget(form.group_alias, {'attr': {'class': 'form-control'}}) }}
-            {{ form_errors(form.group_alias) }}
-            {% if form.group_alias.vars.attr['data-groups-error'] == '1' %}
-                <div class="alert alert-danger" role="alert" style="margin-top:8px;">
-                    {{ 'mautic.evolution.campaign.action.group.load_error'|trans }}
-                </div>
-            {% elseif form.group_alias.vars.choices is empty %}
+            {{ form_label(form.instance) }}
+            {{ form_widget(form.instance) }}
+            {{ form_errors(form.instance) }}
+            {% if form.instance.vars.choices is empty %}
                 <div class="alert alert-warning" role="alert" style="margin-top:8px;">
-                    {{ 'mautic.evolution.campaign.action.group.no_enabled'|trans }}
+                    {{ 'mautic.evolution.campaign.action.instance.cloud.empty'|trans }}
                 </div>
             {% endif %}
             <div class="help-block">
                 <small>
                     <i class="fa fa-info-circle"></i>
-                    {{ 'mautic.evolution.campaign.action.group.help'|trans }}
+                    {{ 'mautic.evolution.campaign.action.instance.cloud.help'|trans }}
                 </small>
             </div>
         </div>
-        
+
         <div class="form-group">
             {{ form_label(form.template) }}
-            {{ form_widget(form.template, {'attr': {'class': 'form-control'}}) }}
+            {{ form_widget(form.template) }}
             {{ form_errors(form.template) }}
             <div class="help-block">
                 <small>
                     <i class="fa fa-info-circle"></i>
-                    Selecione um template ativo para enviar ao lead.
+                    {{ 'mautic.evolution.campaign.action.template.name.help'|trans }}
                 </small>
             </div>
         </div>
-        
+
+        <div class="form-group">
+            {{ form_label(form.language) }}
+            {{ form_widget(form.language) }}
+            {{ form_errors(form.language) }}
+            <div class="help-block">
+                <small>
+                    <i class="fa fa-info-circle"></i>
+                    {{ 'mautic.evolution.campaign.action.template.language.help'|trans }}
+                </small>
+            </div>
+        </div>
+
+        <div class="form-group evolution-template-variables-group">
+            {{ form_row(form.variables) }}
+            <div class="help-block">
+                <small>
+                    <i class="fa fa-info-circle"></i>
+                    {{ 'mautic.evolution.campaign.action.template.variables.help'|trans }}
+                </small>
+            </div>
+            <div class="alert alert-info" style="margin-top:8px;">
+                {{ 'mautic.evolution.campaign.action.template.variables.manual_hint'|trans }}
+            </div>
+        </div>
+
         <div class="form-group">
             {{ form_label(form.phone_field) }}
             {{ form_widget(form.phone_field, {'attr': {'class': 'form-control'}}) }}
             {{ form_errors(form.phone_field) }}
-            <div class="help-block">
-                <small>
-                    <i class="fa fa-info-circle"></i>
-                    Selecione qual campo do lead será usado para obter o número do WhatsApp.
-                </small>
-            </div>
         </div>
 
-        {# Headers (SortableListType) - usar form_row para acionar sortablelist_row #}
         <div class="form-group">
             {{ form_row(form.headers) }}
             <div class="help-block">
-                <small>
-                    <i class="fa fa-info-circle"></i>
-                    {{ 'mautic.evolution.campaign.action.headers.help'|trans }}
-                </small>
-            </div>
-        </div>
-
-        {# Data (SortableListType) - usar form_row para acionar sortablelist_row #}
-        <div class="form-group">
-            {{ form_row(form.data) }}
-            <div class="help-block">
-                <small>
-                    <i class="fa fa-info-circle"></i>
-                    {{ 'mautic.evolution.campaign.action.data.help'|trans }}
-                </small>
+                <small>{{ 'mautic.evolution.campaign.action.headers.help'|trans }}</small>
             </div>
         </div>
     </div>

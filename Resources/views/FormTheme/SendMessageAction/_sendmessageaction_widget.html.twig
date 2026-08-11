@@ -1,67 +1,46 @@
 {% block evolution_send_message_action_widget %}
     <div class="evolution-send-message-widget">
         <div class="form-group">
-            {{ form_label(form.group_alias) }}
-            {{ form_widget(form.group_alias, {'attr': {'class': 'form-control'}}) }}
-            {{ form_errors(form.group_alias) }}
-            {% if form.group_alias.vars.attr['data-groups-error'] == '1' %}
-                <div class="alert alert-danger" role="alert" style="margin-top:8px;">
-                    {{ 'mautic.evolution.campaign.action.group.load_error'|trans }}
-                </div>
-            {% elseif form.group_alias.vars.choices is empty %}
-                <div class="alert alert-warning" role="alert" style="margin-top:8px;">
-                    {{ 'mautic.evolution.campaign.action.group.no_enabled'|trans }}
-                </div>
-            {% endif %}
+            {{ form_label(form.instance) }}
+            {{ form_widget(form.instance, {'attr': {'class': 'form-control evolution-instance-select'}}) }}
+            {{ form_errors(form.instance) }}
             <div class="help-block">
                 <small>
                     <i class="fa fa-info-circle"></i>
-                    {{ 'mautic.evolution.campaign.action.group.help'|trans }}
+                    {{ 'mautic.evolution.campaign.action.instance.help'|trans }}
                 </small>
             </div>
         </div>
 
         <div class="form-group">
             {{ form_label(form.message) }}
-            {{ form_widget(form.message, {'attr': {'class': 'form-control', 'rows': 6, 'placeholder': 'Digite sua mensagem aqui...'}}) }}
+            {{ form_widget(form.message, {'attr': {'class': 'form-control', 'rows': 6}}) }}
             {{ form_errors(form.message) }}
             <div class="help-block">
                 <small>
                     <i class="fa fa-info-circle"></i>
-                    Você pode usar tokens como {firstname}, {lastname}, {email}, etc.
-                </small>
-            </div>
-        </div>
-        
-        <div class="form-group">
-            {{ form_label(form.phone_field) }}
-            {{ form_widget(form.phone_field, {'attr': {'class': 'form-control'}}) }}
-            {{ form_errors(form.phone_field) }}
-            <div class="help-block">
-                <small>
-                    <i class="fa fa-info-circle"></i>
-                    Selecione qual campo do lead será usado para obter o número do WhatsApp.
+                    {{ 'mautic.evolution.campaign.action.message.content.help'|trans }}
                 </small>
             </div>
         </div>
 
         <div class="form-group">
+            {{ form_label(form.phone_field) }}
+            {{ form_widget(form.phone_field, {'attr': {'class': 'form-control'}}) }}
+            {{ form_errors(form.phone_field) }}
+        </div>
+
+        <div class="form-group">
             {{ form_row(form.headers) }}
             <div class="help-block">
-                <small>
-                    <i class="fa fa-info-circle"></i>
-                    {{ 'mautic.evolution.campaign.action.headers.help'|trans }}
-                </small>
+                <small>{{ 'mautic.evolution.campaign.action.headers.help'|trans }}</small>
             </div>
         </div>
 
         <div class="form-group">
             {{ form_row(form.data) }}
             <div class="help-block">
-                <small>
-                    <i class="fa fa-info-circle"></i>
-                    {{ 'mautic.evolution.campaign.action.data.help'|trans }}
-                </small>
+                <small>{{ 'mautic.evolution.campaign.action.data.help'|trans }}</small>
             </div>
         </div>
     </div>

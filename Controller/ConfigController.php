@@ -118,7 +118,7 @@ class ConfigController extends FormController
             $config = $request->request->all();
             
             // Valida configurações obrigatórias
-            $requiredFields = ['evolution_api_url', 'evolution_api_key', 'evolution_instance'];
+            $requiredFields = ['evolution_api_url', 'evolution_api_key'];
             $missingFields = [];
             
             foreach ($requiredFields as $field) {
@@ -159,7 +159,6 @@ class ConfigController extends FormController
             $config = [
                 'evolution_api_url' => $this->coreParametersHelper->get('evolution_api_url', ''),
                 'evolution_api_key' => $this->coreParametersHelper->get('evolution_api_key', ''),
-                'evolution_instance' => $this->coreParametersHelper->get('evolution_instance', ''),
                 'evolution_timeout' => $this->coreParametersHelper->get('evolution_timeout', 30),
             ];
 

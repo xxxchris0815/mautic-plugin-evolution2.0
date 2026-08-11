@@ -11,25 +11,25 @@
 namespace MauticPlugin\MauticEvolutionBundle\Integration;
 
 // Importação de todas as classes necessárias para a integração
-use Mautic\CoreBundle\Form\Type\YesNoButtonGroupType;             // Tipo de campo sim/não
-use Symfony\Component\Form\FormBuilder;                            // Para builder tipado
-use Doctrine\ORM\EntityManager;                           // Para operações no banco de dados
-use Mautic\CoreBundle\Helper\CacheStorageHelper;          // Para gerenciamento de cache
-use Mautic\CoreBundle\Helper\EncryptionHelper;            // Para criptografia de dados sensíveis
-use Mautic\CoreBundle\Helper\PathsHelper;                 // Para trabalhar com caminhos de arquivos
-use Mautic\CoreBundle\Model\NotificationModel;            // Para envio de notificações
-use Mautic\LeadBundle\Field\FieldsWithUniqueIdentifier;   // Para campos únicos de contatos
-use Mautic\LeadBundle\Model\CompanyModel;                 // Para trabalhar com empresas
-use Mautic\LeadBundle\Model\DoNotContact as DoNotContactModel; // Para lista de não contatar
-use Mautic\LeadBundle\Model\FieldModel;                   // Para campos customizados
-use Mautic\LeadBundle\Model\LeadModel;                    // Para trabalhar com contatos
-use Mautic\PluginBundle\Integration\AbstractIntegration;  // Classe base para integrações
-use Mautic\PluginBundle\Model\IntegrationEntityModel;     // Para entidades de integração
-use Psr\Log\LoggerInterface;                              // Para logs
-use Symfony\Component\EventDispatcher\EventDispatcherInterface; // Para eventos
-use Symfony\Component\HttpFoundation\RequestStack;        // Para requisições HTTP
-use Symfony\Component\Routing\RouterInterface;            // Para roteamento
-use Symfony\Contracts\Translation\TranslatorInterface;    // Para tradução
+use Doctrine\ORM\EntityManager;
+use Mautic\CoreBundle\Form\Type\YesNoButtonGroupType;
+use Mautic\CoreBundle\Helper\CacheStorageHelper;
+use Mautic\CoreBundle\Helper\EncryptionHelper;
+use Mautic\CoreBundle\Helper\PathsHelper;
+use Mautic\CoreBundle\Model\NotificationModel;
+use Mautic\LeadBundle\Field\FieldsWithUniqueIdentifier;
+use Mautic\LeadBundle\Model\CompanyModel;
+use Mautic\LeadBundle\Model\DoNotContact as DoNotContactModel;
+use Mautic\LeadBundle\Model\FieldModel;
+use Mautic\LeadBundle\Model\LeadModel;
+use Mautic\PluginBundle\Integration\AbstractIntegration;
+use Mautic\PluginBundle\Model\IntegrationEntityModel;
+use Psr\Log\LoggerInterface;
+use Symfony\Component\EventDispatcher\EventDispatcherInterface;
+use Symfony\Component\Form\Extension\Core\Type\NumberType;
+use Symfony\Component\HttpFoundation\RequestStack;
+use Symfony\Component\Routing\RouterInterface;
+use Symfony\Contracts\Translation\TranslatorInterface;
 
 /**
  * Classe MauticEvolutionIntegration
@@ -133,18 +133,18 @@ class MauticEvolutionIntegration extends AbstractIntegration
      */
     public function getRequiredKeyFields(): array
     {
-        return ['evolution_api_url', 'evolution_api_key'];    // Nenhum campo obrigatório (integração simples)
+        return [
+            'evolution_api_url' => 'mautic.evolution.config.api_url',
+            'evolution_api_key' => 'mautic.evolution.config.api_key',
+        ];
     }
 
     /**
-     * Método getSecretKeys - Define quais campos contêm informações sensíveis
-     * 
-     * Campos listados aqui serão criptografados automaticamente pelo Mautic
-     * antes de serem salvos no banco de dados.
+     * Campos sensíveis (criptografados pelo Mautic).
      */
     public function getSecretKeys(): array
     {
-        return ['evolution_api_key'];    // Nenhum campo secreto definido
+        return ['evolution_api_key'];
     }
 
     /**
@@ -180,13 +180,30 @@ class MauticEvolutionIntegration extends AbstractIntegration
      * Adiciona campos customizados ao formulário da integração.
      * Permite expor configurações adicionais na área de 'features'.
      *
-     * @param \Mautic\PluginBundle\Integration\Form|FormBuilder $builder
+     * @param \Mautic\PluginBundle\Integration\Form|\Symfony\Component\Form\FormBuilder $builder
      * @param array                                                $data
      * @param string                                               $formArea
      */
     public function appendToForm(&$builder, $data, $formArea): void
     {
         if ('features' === $formArea) {
+            $builder->add(
+                'evolution_timeout',
+                NumberType::class,
+                [
+                    'label'      => 'mautic.evolution.config.timeout',
+                    'label_attr' => ['class' => 'control-label'],
+                    'attr'       => [
+                        'class'   => 'form-control',
+                        'tooltip' => 'mautic.evolution.help.timeout',
+                        'min'     => 5,
+                        'max'     => 300,
+                    ],
+                    'data'     => isset($data['evolution_timeout']) ? (int) $data['evolution_timeout'] : 30,
+                    'required' => false,
+                ]
+            );
+
             $builder->add(
                 'check_whatsapp_on_save',
                 YesNoButtonGroupType::class,

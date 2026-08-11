@@ -17,14 +17,14 @@ Plugin oficial para integração entre Mautic e Evolution API, permitindo o envi
 ## 🚀 Estado Atual do Plugin
 
 ### Versão Atual
-- **Versão**: 1.0.0
+- **Versão**: 2.0.0
 - **Status**: Estável
-- **Última Atualização**: 2024
+- **Última Atualização**: 2026
 
 ### Compatibilidade
-- **Mautic**: >= 6.0
+- **Mautic**: >= 6.0 (getestet mit aktueller Mautic 7.x)
 - **PHP**: >= 8.1
-- **Evolution API**: >= 1.5.0
+- **Evolution API**: >= 2.0.0
 - **Symfony**: >= 6.0
 
 ### Funcionalidades Implementadas ✅
@@ -63,9 +63,9 @@ Plugin oficial para integração entre Mautic e Evolution API, permitindo o envi
 - **Banco de Dados**: MySQL/MariaDB com suporte a UTF8MB4
 
 #### Evolution API
-- **Versão**: 1.5.0 ou superior
-- **Instância WhatsApp**: Configurada e conectada
-- **API Key**: Válida e ativa
+- **Versão**: 2.0.0 ou superior ([evolution-foundation/evolution-api](https://github.com/evolution-foundation/evolution-api))
+- **Instância WhatsApp**: Configurada e conectada (`instance` im Plugin-Pfad `/message/sendText/{instance}`)
+- **API Key**: Válida e ativa (Header `apikey`)
 - **Webhook Endpoint**: Acessível publicamente
 
 ### Dependências PHP
@@ -120,37 +120,46 @@ php bin/console doctrine:schema:update --force
 
 | Campo | Descrição | Obrigatório |
 |-------|-----------|-------------|
-| **URL da Evolution API** | URL base da sua instância Evolution API | ✅ |
+| **URL da Evolution API** | URL base da sua Evolution API v2 | ✅ |
 | **API Key** | Chave de autenticação da Evolution API | ✅ |
 | **Timeout** | Tempo limite para requisições (segundos) | ❌ |
-| **Habilitar Webhooks** | Receber atualizações de status | ❌ |
-| **Modo Debug** | Logs detalhados para desenvolvimento | ❌ |
+| **Check WhatsApp on save** | Nummer beim Speichern eines Kontakts prüfen | ❌ |
 
 3. **Exemplo de Configuração**:
 ```php
-// Configuração via interface ou arquivo local.php
+// Configuração via interface do plugin
 $config = [
     'evolution_api_url' => 'https://sua-evolution-api.com',
     'evolution_api_key' => 'sua-api-key-aqui',
     'evolution_timeout' => 30,
-    'evolution_webhook_enabled' => true,
-    'evolution_debug_mode' => false
 ];
 ```
 
+Die **Instance** wird später in jeder Campaign-Action gewählt (nicht mehr in den Plugin-Settings).
+
+Nummernformat (Evolution v2): nur Ziffern inkl. Ländervorwahl, ohne `+`  
+Beispiel: `+49 170 1234567` → `491701234567`
+
 ### Passo 4: Configuração de Webhooks
 
-1. **Configure o Webhook na Evolution API**:
+1. **Configure o Webhook na Evolution API v2**:
 ```bash
-curl -X POST "https://sua-evolution-api.com/external-webhook/create" \
+curl -X POST "https://sua-evolution-api.com/webhook/set/minha-instancia" \
   -H "Content-Type: application/json" \
   -H "apikey: sua-api-key" \
   -d '{
-    "name": "Update event send",
-    "url": "http://seu.mautic/webhook/evolution/receive",
-    "enabled": true,
-    "events": ["messages.update"],
-    "description": "Webhook para testar evento MESSAGES_UPDATE"
+    "webhook": {
+      "enabled": true,
+      "url": "https://seu.mautic/webhook/evolution/receive",
+      "byEvents": false,
+      "base64": false,
+      "events": [
+        "MESSAGES_UPSERT",
+        "MESSAGES_UPDATE",
+        "SEND_MESSAGE",
+        "CONNECTION_UPDATE"
+      ]
+    }
   }'
 ```
 
@@ -258,52 +267,53 @@ Todas as variáveis de contato do Mautic podem ser utilizadas:
 - `{contactfield=company}` - Empresa
 - Campos personalizados: `{contactfield=nome_do_campo}`
 
-### Sistema de Templates
+### Sistema de Templates (WhatsApp Cloud / Evolution v2)
 
-#### Gerenciamento de Templates
-- **CRUD Completo**: Criar, editar, visualizar e excluir templates
-- **Preview**: Visualização prévia com dados de exemplo
-- **Clonagem**: Duplicar templates existentes
-- **Ativação/Desativação**: Controle de status dos templates
+Die Campaign-Action **Send WhatsApp Template** nutzt jetzt den Evolution-Endpoint:
 
-#### Estrutura de Template
-```json
-{
-  "id": 1,
-  "name": "Nome do Template",
-  "content": "Conteúdo com {contactfield=variavel}",
-  "isPublished": true,
-  "dateAdded": "2024-01-01T12:00:00Z",
-  "dateModified": "2024-01-01T12:00:00Z"
-}
-```
+`POST /message/sendTemplate/{instance}`
 
-### Sistema de Webhooks
+- Template-Name und Language werden manuell eingetragen (Evolution `/template/find` liefert oft keine Liste)
+- Variablen-Mapping im Action-Formular: Keys wie `body.1`, `header.1`, `button.0`
+- Werte unterstützen Mautic-Tokens (`{firstname}`, `{contactfield=email}`)
+- Pro Action muss die **Instance** gewählt werden
+
+> Hinweis: Lokale Plugin-Templates unter „Evolution → Templates“ bleiben für Freitext-Vorlagen erhalten. Offizielle Meta-HSM-Templates kommen aus der Evolution/WhatsApp Cloud API.
+
+### Sistema de Webhooks (Evolution API v2)
 
 #### Eventos Suportados
-- `MESSAGES_UPSERT`: Nova mensagem recebida
-- `MESSAGES_UPDATE`: Atualização de status de mensagem
-- `SEND_MESSAGE`: Confirmação de envio
+Das Plugin akzeptiert sowohl die Evolution-Eventnamen (`messages.update`) als auch die Großschreib-Aliases (`MESSAGES_UPDATE`):
 
-#### Status de Mensagem
-- `PENDING`: Aguardando envio
-- `SENT`: Enviada
-- `DELIVERY_ACK`: Entregue
-- `READ`: Lida
-- `FAILED`: Falha no envio
+- `messages.upsert` / `MESSAGES_UPSERT`: Neue eingehende Nachricht
+- `messages.update` / `MESSAGES_UPDATE`: Status-Update (zugestellt, gelesen, …)
+- `send.message` / `SEND_MESSAGE`: Sendebestätigung
+- `connection.update` / `CONNECTION_UPDATE`: Verbindungsstatus
+
+#### Status-Mapping (Webhook → Plugin)
+| Evolution Status | Plugin Status |
+|------------------|---------------|
+| `SERVER_ACK` / `PENDING` | `sent` / `pending` |
+| `DELIVERY_ACK` | `delivered` |
+| `READ` / `PLAYED` | `read` |
+| `ERROR` | `failed` |
+
+Webhook-Payload für Status-Updates enthält typischerweise `keyId` + `status` (z. B. `READ`).
 
 ### Integração com Campanhas
 
 #### Actions Disponíveis
 1. **Enviar Mensagem WhatsApp**
-   - Mensagem de texto personalizada
-   - Suporte a variáveis de contato
-   - Configuração de campo de telefone
+   - Freitext über `/message/sendText/{instance}`
+   - Instance-Auswahl
+   - Kontakt-Tokens
 
 2. **Enviar Template WhatsApp**
-   - Seleção de template pré-configurado
-   - Substituição automática de variáveis
-   - Validação de campos obrigatórios
+   - Offizielle WhatsApp-Business-Templates über `/message/sendTemplate/{instance}`
+   - Template-Liste + Variablen aus Evolution API
+   - Instance-Auswahl
+
+Load-/Group-Balancing wurde entfernt (nicht Teil von Evolution API v2).
 
 #### Configurações de Action
 ```php
@@ -386,10 +396,10 @@ curl -H "apikey: sua-key" \
   https://sua-evolution-api.com/instance/connectionState/sua-instancia
 ```
 
-2. **Formato do Número**:
+2. **Formato do Número** (Evolution API v2):
 ```php
-// Formato correto: +5511999999999
-// Formato incorreto: 11999999999, (11) 99999-9999
+// Formato correto: 491701234567 oder 5511999999999 (nur Ziffern, mit Ländervorwahl)
+// Formato incorreto: +49 170 1234567, (11) 99999-9999
 ```
 
 3. **Logs de Erro**:
@@ -412,11 +422,13 @@ curl -X POST https://seu-mautic.com/webhook/evolution/receive \
   -d '{"test": true}'
 ```
 
-2. **Configuração na Evolution API**:
+2. **Configuração na Evolution API v2**:
 ```bash
 curl -H "apikey: sua-key" \
   https://sua-evolution-api.com/webhook/find/sua-instancia
 ```
+
+Webhook-Events müssen mindestens `MESSAGES_UPDATE` enthalten, damit Zustell-/Lesestatus im Plugin ankommen.
 
 3. **Logs de Webhook**:
 ```bash

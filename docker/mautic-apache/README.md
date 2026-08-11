@@ -25,8 +25,9 @@ In **Settings → Plugins → Evolution Plugin**:
 
 - API URL: `http://host.docker.internal:8081`
 - API Key: `test-evolution-key`
-- Instance: `cloud-instance`
 - Publish / enable the integration
+
+Instance is selected later in each campaign action.
 
 Or run:
 

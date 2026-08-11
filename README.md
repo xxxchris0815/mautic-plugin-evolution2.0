@@ -122,7 +122,6 @@ php bin/console doctrine:schema:update --force
 |-------|-----------|-------------|
 | **URL da Evolution API** | URL base da sua Evolution API v2 | ✅ |
 | **API Key** | Chave de autenticação da Evolution API | ✅ |
-| **Instance** | Nome da instância WhatsApp (Pfad: `/message/sendText/{instance}`) | ✅ |
 | **Timeout** | Tempo limite para requisições (segundos) | ❌ |
 | **Check WhatsApp on save** | Nummer beim Speichern eines Kontakts prüfen | ❌ |
 
@@ -132,10 +131,11 @@ php bin/console doctrine:schema:update --force
 $config = [
     'evolution_api_url' => 'https://sua-evolution-api.com',
     'evolution_api_key' => 'sua-api-key-aqui',
-    'evolution_instance' => 'minha-instancia',
     'evolution_timeout' => 30,
 ];
 ```
+
+Die **Instance** wird später in jeder Campaign-Action gewählt (nicht mehr in den Plugin-Settings).
 
 Nummernformat (Evolution v2): nur Ziffern inkl. Ländervorwahl, ohne `+`  
 Beispiel: `+49 170 1234567` → `491701234567`
@@ -273,11 +273,10 @@ Die Campaign-Action **Send WhatsApp Template** nutzt jetzt den Evolution-Endpoin
 
 `POST /message/sendTemplate/{instance}`
 
-- Templates werden live geladen: `GET /template/find/{instance}`
-- Nur Status `APPROVED` erscheint in der Auswahl
+- Template-Name und Language werden manuell eingetragen (Evolution `/template/find` liefert oft keine Liste)
 - Variablen-Mapping im Action-Formular: Keys wie `body.1`, `header.1`, `button.0`
 - Werte unterstützen Mautic-Tokens (`{firstname}`, `{contactfield=email}`)
-- Pro Action muss die **Instance** gewählt werden (Default = Plugin-Setting)
+- Pro Action muss die **Instance** gewählt werden
 
 > Hinweis: Lokale Plugin-Templates unter „Evolution → Templates“ bleiben für Freitext-Vorlagen erhalten. Offizielle Meta-HSM-Templates kommen aus der Evolution/WhatsApp Cloud API.
 

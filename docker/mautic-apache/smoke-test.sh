@@ -36,8 +36,8 @@ code=$(curl -sS -b "$COOKIE_JAR" -o /tmp/smoke_templates.html -w '%{http_code}' 
 [[ "$code" == "200" ]] && ok "templates index" || ko "templates index ($code)"
 
 code=$(curl -sS -b "$COOKIE_JAR" -o /tmp/smoke_config.html -w '%{http_code}' "${BASE_URL}/s/plugins/config/MauticEvolution")
-[[ "$code" == "200" && "$(cat /tmp/smoke_config.html)" == *'evolution_instance'* ]] \
-  && ok "integration config form" || ko "integration config form ($code)"
+[[ "$code" == "200" && "$(cat /tmp/smoke_config.html)" == *'evolution_api_url'* && "$(cat /tmp/smoke_config.html)" != *'apiKeys][evolution_instance'* ]] \
+  && ok "integration config form (no instance key)" || ko "integration config form ($code)"
 
 code=$(curl -sS -b "$COOKIE_JAR" -o /tmp/smoke_instances.json -w '%{http_code}' \
   "${BASE_URL}/s/evolution/ajax/instances")

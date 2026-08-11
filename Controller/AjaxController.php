@@ -65,7 +65,7 @@ class AjaxController extends CommonController
             'success' => $result['success'],
             'instances' => $instances,
             'choices' => $this->evolutionApiService->getInstanceChoices($cloudOnly),
-            'default' => $this->evolutionApiService->getConfiguredInstance(),
+            'default' => $this->evolutionApiService->getFirstAvailableInstance($cloudOnly),
             'cloud_only' => $cloudOnly,
             'error' => $result['error'] ?? null,
         ]);
@@ -75,7 +75,7 @@ class AjaxController extends CommonController
     {
         $instance = $instance ?: (string) $request->query->get('instance', '');
         if ($instance === '') {
-            $instance = $this->evolutionApiService->getConfiguredInstance();
+            $instance = $this->evolutionApiService->getFirstAvailableInstance(true);
         }
 
         if ($instance !== '' && !$this->evolutionApiService->isCloudTemplateInstance($instance)) {

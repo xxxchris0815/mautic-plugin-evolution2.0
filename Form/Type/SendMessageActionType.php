@@ -26,9 +26,12 @@ class SendMessageActionType extends AbstractType
     {
         $formData = is_array($options['data'] ?? null) ? $options['data'] : [];
         $instanceChoices = $this->evolutionApiService->getInstanceChoices();
-        $defaultInstance = (string) ($formData['instance'] ?? $this->evolutionApiService->getConfiguredInstance());
+        $defaultInstance = (string) ($formData['instance'] ?? '');
         if ($defaultInstance !== '' && !in_array($defaultInstance, $instanceChoices, true)) {
             $instanceChoices[$defaultInstance] = $defaultInstance;
+        }
+        if ($defaultInstance === '' && $instanceChoices !== []) {
+            $defaultInstance = (string) reset($instanceChoices);
         }
 
         $builder

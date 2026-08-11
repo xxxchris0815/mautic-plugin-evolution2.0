@@ -303,15 +303,17 @@ class EvolutionApiService
             $choices[$label] = $name;
         }
 
-        // Fallback only for non-template forms; never invent a Baileys/default for cloud-only
-        if ($choices === [] && !$cloudOnly) {
-            $default = $this->getConfiguredInstance();
-            if ($default !== '') {
-                $choices[$default] = $default;
-            }
-        }
-
         return $choices;
+    }
+
+    /**
+     * First available Evolution instance (for connection / optional lead checks).
+     */
+    public function getFirstAvailableInstance(bool $cloudOnly = false): string
+    {
+        $choices = array_values($this->getInstanceChoices($cloudOnly));
+
+        return $choices[0] ?? '';
     }
 
     /**
@@ -912,7 +914,6 @@ class EvolutionApiService
             $mappedApiKeys = [
                 'evolution_api_url' => (string) ($apiKeys['evolution_api_url'] ?? $apiKeys[0] ?? ''),
                 'evolution_api_key' => (string) ($apiKeys['evolution_api_key'] ?? $apiKeys[1] ?? ''),
-                'evolution_instance' => (string) ($apiKeys['evolution_instance'] ?? $apiKeys[2] ?? ''),
             ];
         }
 
@@ -934,17 +935,15 @@ class EvolutionApiService
     }
 
     /**
-     * Default instance from plugin settings.
+     * @deprecated Instance is selected per campaign action. Kept only for legacy installs.
      */
     public function getConfiguredInstance(): string
     {
-        $settings = $this->getIntegrationSettings();
-
-        return trim((string) ($settings['evolution_instance'] ?? ''));
+        return '';
     }
 
     /**
-     * Resolve instance for path parameters. Explicit override wins over plugin default.
+     * Resolve instance for path parameters. Must be provided by the caller (campaign action).
      */
     public function resolveInstance(?string $instance = null): string
     {
@@ -953,12 +952,9 @@ class EvolutionApiService
             return $resolved;
         }
 
-        $configured = $this->getConfiguredInstance();
-        if ($configured === '') {
-            throw new EvolutionApiException('Evolution API instance name is not configured');
-        }
-
-        return $configured;
+        throw new EvolutionApiException(
+            'Evolution API instance name is required. Select an instance in the campaign action.'
+        );
     }
 
     private function getTimeout(): int
@@ -971,15 +967,25 @@ class EvolutionApiService
     public function isConfigured(): bool
     {
         return !empty($this->getApiUrl())
-            && !empty($this->getApiKey())
-            && !empty($this->getConfiguredInstance());
+            && !empty($this->getApiKey());
     }
 
     public function getInstanceStatus(CampaignExecutionEvent $event = null, ?string $instance = null): array
     {
+        $resolved = trim((string) ($instance ?? ''));
+        if ($resolved === '') {
+            $resolved = $this->getFirstAvailableInstance();
+        }
+        if ($resolved === '') {
+            return [
+                'success' => false,
+                'error' => 'No Evolution instance available to check status',
+            ];
+        }
+
         return $this->makeRequest(
             'GET',
-            '/instance/connectionState/' . $this->resolveInstance($instance),
+            '/instance/connectionState/' . $resolved,
             [],
             null,
             $event,
@@ -993,12 +999,7 @@ class EvolutionApiService
      */
     private function fallbackInstanceChoices(): array
     {
-        $configured = $this->getConfiguredInstance();
-        if ($configured === '') {
-            return [];
-        }
-
-        return [['name' => $configured, 'status' => 'configured']];
+        return [];
     }
 
     private function isListArray(array $value): bool
@@ -1013,7 +1014,7 @@ class EvolutionApiService
     public function testConnection(CampaignExecutionEvent $event = null): array
     {
         if (!$this->isConfigured()) {
-            $errorMessage = 'Incomplete configuration. Check URL, API Key and Instance.';
+            $errorMessage = 'Incomplete configuration. Check URL and API Key.';
 
             if ($event instanceof CampaignExecutionEvent) {
                 $event->setFailed($errorMessage);

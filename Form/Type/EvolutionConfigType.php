@@ -58,20 +58,6 @@ class EvolutionConfigType extends AbstractType
                     ]),
                 ],
             ])
-            ->add('evolution_instance', TextType::class, [
-                'label' => 'mautic.evolution.config.form.instance',
-                'label_attr' => ['class' => 'control-label required'],
-                'required' => true,
-                'attr' => [
-                    'class' => 'form-control',
-                    'tooltip' => 'mautic.evolution.config.form.instance.tooltip',
-                ],
-                'constraints' => [
-                    new Assert\NotBlank([
-                        'message' => 'mautic.evolution.config.instance.notblank',
-                    ]),
-                ],
-            ])
             ->add('evolution_timeout', NumberType::class, [
                 'label' => 'mautic.evolution.config.form.timeout',
                 'label_attr' => ['class' => 'control-label'],

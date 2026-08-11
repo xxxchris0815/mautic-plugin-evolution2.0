@@ -82,14 +82,17 @@ class CampaignSubscriber implements EventSubscriberInterface
             }
 
             if (empty($instance)) {
-                $instance = $this->evolutionApiService->getConfiguredInstance();
+                $event->setResult(false);
+                $event->setFailed('Instance is required');
+
+                return;
             }
 
             $result = $this->messageModel->sendMessage(
                 $lead,
                 $message,
                 null,
-                !empty($instance) ? (string) $instance : null,
+                (string) $instance,
                 $phoneField,
                 $headers,
                 $metadata
@@ -153,10 +156,13 @@ class CampaignSubscriber implements EventSubscriberInterface
             }
 
             if (empty($instance)) {
-                $instance = $this->evolutionApiService->getConfiguredInstance();
+                $event->setResult(false);
+                $event->setFailed('Instance is required');
+
+                return;
             }
 
-            if (empty($instance) || !$this->evolutionApiService->isCloudTemplateInstance((string) $instance)) {
+            if (!$this->evolutionApiService->isCloudTemplateInstance((string) $instance)) {
                 $event->setResult(false);
                 $event->setFailed(
                     'Send Template requires a WhatsApp Cloud/Business instance (WHATSAPP-BUSINESS). Baileys instances are not supported.'

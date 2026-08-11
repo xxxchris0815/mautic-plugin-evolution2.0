@@ -14,13 +14,15 @@ $kernel->boot();
 $api = $kernel->getContainer()->get('mautic.evolution.service.evolution_api');
 
 $checks = [];
-$checks['configured_instance'] = $api->getConfiguredInstance();
+$checks['is_configured'] = $api->isConfigured();
 $checks['all_instances'] = array_values($api->getInstanceChoices(false));
 $checks['cloud_instances'] = array_values($api->getInstanceChoices(true));
 $checks['baileys_filtered'] = !in_array('baileys-instance', $checks['cloud_instances'], true)
     && in_array('cloud-instance', $checks['cloud_instances'], true);
 $checks['templates_ok'] = (bool) ($api->findTemplates('cloud-instance')['success'] ?? false);
-$checks['send_text_ok'] = (bool) ($api->sendTextMessage('491701234567', 'smoke')['success'] ?? false);
+$checks['send_text_ok'] = (bool) (
+    $api->sendTextMessage('491701234567', 'smoke', null, null, [], [], 'cloud-instance')['success'] ?? false
+);
 $checks['send_template_ok'] = (bool) (
     $api->sendTemplateMessage('491701234567', 'welcome', 'en', [], null, null, [], 'cloud-instance')['success'] ?? false
 );
@@ -33,6 +35,6 @@ try {
 }
 
 echo json_encode($checks, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL;
-$ok = $checks['baileys_filtered'] && $checks['templates_ok'] && $checks['send_text_ok']
-    && $checks['send_template_ok'] && $checks['baileys_blocked'];
+$ok = $checks['is_configured'] && $checks['baileys_filtered'] && $checks['templates_ok']
+    && $checks['send_text_ok'] && $checks['send_template_ok'] && $checks['baileys_blocked'];
 exit($ok ? 0 : 1);

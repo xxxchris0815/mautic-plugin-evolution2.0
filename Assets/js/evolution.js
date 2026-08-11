@@ -54,8 +54,7 @@ var MauticEvolution = {
         // Get form data
         var formData = {
             evolution_api_url: mQuery('#evolution_api_url').val(),
-            evolution_api_key: mQuery('#evolution_api_key').val(),
-            evolution_instance: mQuery('#evolution_instance').val()
+            evolution_api_key: mQuery('#evolution_api_key').val()
         };
         
         mQuery.ajax({

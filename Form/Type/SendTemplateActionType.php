@@ -30,7 +30,6 @@ class SendTemplateActionType extends AbstractType
         $formData = is_array($options['data'] ?? null) ? $options['data'] : [];
         // Templates require WhatsApp Cloud API instances only (no Baileys)
         $instanceChoices = $this->evolutionApiService->getInstanceChoices(true);
-        $configured = $this->evolutionApiService->getConfiguredInstance();
         $defaultInstance = (string) ($formData['instance'] ?? '');
 
         if ($defaultInstance !== '' && !in_array($defaultInstance, $instanceChoices, true)) {
@@ -42,12 +41,8 @@ class SendTemplateActionType extends AbstractType
             }
         }
 
-        if ($defaultInstance === '') {
-            if ($configured !== '' && in_array($configured, $instanceChoices, true)) {
-                $defaultInstance = $configured;
-            } elseif ($instanceChoices !== []) {
-                $defaultInstance = (string) reset($instanceChoices);
-            }
+        if ($defaultInstance === '' && $instanceChoices !== []) {
+            $defaultInstance = (string) reset($instanceChoices);
         }
 
         // Backward compatible with older configs that stored "name|language"

@@ -27,8 +27,6 @@ use Mautic\PluginBundle\Model\IntegrationEntityModel;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Symfony\Component\Form\Extension\Core\Type\NumberType;
-use Symfony\Component\Form\Extension\Core\Type\TextType;
-use Symfony\Component\Form\FormBuilder;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\Routing\RouterInterface;
 use Symfony\Contracts\Translation\TranslatorInterface;
@@ -138,7 +136,6 @@ class MauticEvolutionIntegration extends AbstractIntegration
         return [
             'evolution_api_url' => 'mautic.evolution.config.api_url',
             'evolution_api_key' => 'mautic.evolution.config.api_key',
-            'evolution_instance' => 'mautic.evolution.config.instance',
         ];
     }
 
@@ -221,24 +218,6 @@ class MauticEvolutionIntegration extends AbstractIntegration
                     'required' => false,
                 ]
             );
-
-            // Optional override if instance was previously stored in feature settings
-            if (!empty($data['evolution_instance'])) {
-                $builder->add(
-                    'evolution_instance',
-                    TextType::class,
-                    [
-                        'label'      => 'mautic.evolution.config.instance',
-                        'label_attr' => ['class' => 'control-label'],
-                        'attr'       => [
-                            'class'   => 'form-control',
-                            'tooltip' => 'mautic.evolution.help.instance',
-                        ],
-                        'data'     => (string) $data['evolution_instance'],
-                        'required' => false,
-                    ]
-                );
-            }
         }
     }
 

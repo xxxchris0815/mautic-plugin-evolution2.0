@@ -180,7 +180,7 @@ class MauticEvolutionIntegration extends AbstractIntegration
      * Adiciona campos customizados ao formulário da integração.
      * Permite expor configurações adicionais na área de 'features'.
      *
-     * @param \Mautic\PluginBundle\Integration\Form|FormBuilder $builder
+     * @param \Mautic\PluginBundle\Integration\Form|\Symfony\Component\Form\FormBuilder $builder
      * @param array                                                $data
      * @param string                                               $formArea
      */

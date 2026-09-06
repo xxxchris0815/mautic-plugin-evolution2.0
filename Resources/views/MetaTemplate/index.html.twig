@@ -1,0 +1,96 @@
+{% extends '@MauticCore/Default/content.html.twig' %}
+
+{% block headerTitle %}{{ 'mautic.evolution.meta_template.header'|trans }}{% endblock %}
+
+{% block mauticContent %}
+<div class="panel panel-primary">
+    <div class="panel-heading">
+        <div class="panel-title">
+            <i class="ri-whatsapp-line"></i>
+            {{ 'mautic.evolution.meta_template.header'|trans }}
+        </div>
+        <div class="panel-toolbar">
+            <div class="btn-group">
+                <a href="{{ path('mautic_evolution_meta_template_new') }}" class="btn btn-primary btn-sm">
+                    <i class="fa fa-plus"></i>
+                    {{ 'mautic.evolution.meta_template.new'|trans }}
+                </a>
+                <a href="{{ path('mautic_evolution_meta_template_sync') }}" class="btn btn-default btn-sm">
+                    <i class="fa fa-refresh"></i>
+                    {{ 'mautic.evolution.meta_template.sync'|trans }}
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel-body">
+        <div class="alert alert-info">
+            {{ 'mautic.evolution.meta_template.intro'|trans }}
+        </div>
+
+        {% if items|length > 0 %}
+            <div class="table-responsive">
+                <table class="table table-hover table-striped">
+                    <thead>
+                        <tr>
+                            <th>{{ 'mautic.evolution.template.name'|trans }}</th>
+                            <th>{{ 'mautic.evolution.meta_template.language'|trans }}</th>
+                            <th>{{ 'mautic.evolution.meta_template.category'|trans }}</th>
+                            <th>{{ 'mautic.evolution.meta_template.status'|trans }}</th>
+                            <th>{{ 'mautic.core.actions'|trans }}</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in items %}
+                            {% set status = (item.status ?: 'UNKNOWN')|upper %}
+                            {% set statusClass = status == 'APPROVED' ? 'success' : (status == 'PENDING' or status == 'IN_APPEAL' ? 'warning' : (status == 'REJECTED' ? 'danger' : 'default')) %}
+                            <tr>
+                                <td>
+                                    <a href="{{ path('mautic_evolution_meta_template_view', {'objectId': item.id}) }}">
+                                        {{ item.name }}
+                                    </a>
+                                    {% if item.content %}
+                                        <div class="text-muted small">{{ item.content|slice(0, 80) }}</div>
+                                    {% endif %}
+                                </td>
+                                <td>{{ item.language ?: '-' }}</td>
+                                <td>{{ item.categoryType ?: '-' }}</td>
+                                <td>
+                                    <span class="label label-{{ statusClass }}">{{ status }}</span>
+                                </td>
+                                <td>
+                                    <div class="btn-group">
+                                        <a href="{{ path('mautic_evolution_meta_template_view', {'objectId': item.id}) }}" class="btn btn-default btn-xs">
+                                            <i class="fa fa-eye"></i>
+                                            {{ 'mautic.core.form.view'|trans }}
+                                        </a>
+                                        <a href="{{ path('mautic_evolution_meta_template_delete', {'objectId': item.id}) }}"
+                                           class="btn btn-danger btn-xs"
+                                           onclick="return confirm('{{ 'mautic.evolution.meta_template.delete.confirm'|trans }}')">
+                                            <i class="fa fa-trash"></i>
+                                            {{ 'mautic.core.form.delete'|trans }}
+                                        </a>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="alert alert-info text-center">
+                <h4>{{ 'mautic.evolution.meta_template.empty.title'|trans }}</h4>
+                <p>{{ 'mautic.evolution.meta_template.empty.description'|trans }}</p>
+                <a href="{{ path('mautic_evolution_meta_template_sync') }}" class="btn btn-default">
+                    <i class="fa fa-refresh"></i>
+                    {{ 'mautic.evolution.meta_template.sync'|trans }}
+                </a>
+                <a href="{{ path('mautic_evolution_meta_template_new') }}" class="btn btn-primary">
+                    <i class="fa fa-plus"></i>
+                    {{ 'mautic.evolution.meta_template.new'|trans }}
+                </a>
+            </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

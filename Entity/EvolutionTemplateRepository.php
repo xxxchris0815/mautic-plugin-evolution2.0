@@ -101,6 +101,20 @@ class EvolutionTemplateRepository extends CommonRepository
     }
 
     /**
+     * @return list<EvolutionTemplate>
+     */
+    public function findBySource(string $source): array
+    {
+        return $this->createQueryBuilder('t')
+            ->where('t.source = :source')
+            ->setParameter('source', $source)
+            ->orderBy('t.name', 'ASC')
+            ->addOrderBy('t.language', 'ASC')
+            ->getQuery()
+            ->getResult();
+    }
+
+    /**
      * Verifica se nome do template já existe
      */
     public function nameExists(string $name, ?int $excludeId = null): bool

@@ -173,6 +173,14 @@ class TemplateModel extends FormModel
     }
 
     /**
+     * @return list<EvolutionTemplate>
+     */
+    public function getTemplatesBySource(string $source): array
+    {
+        return $this->getRepository()->findBySource($source);
+    }
+
+    /**
      * Valida se o nome do template já existe
      */
     public function templateNameExists(string $name, ?int $excludeId = null): bool

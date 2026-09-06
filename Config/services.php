@@ -76,10 +76,18 @@ return function (ContainerConfigurator $configurator): void {
         ])
         ->tag('form.type');
 
-    $services->set(MauticPlugin\MauticEvolutionBundle\Form\Type\SendMediaActionType::class)
+        $services->set(MauticPlugin\MauticEvolutionBundle\Form\Type\SendMediaActionType::class)
         ->public()
         ->args([
             service('mautic.evolution.service.evolution_api'),
         ])
+        ->tag('form.type');
+
+    $services->set(MauticPlugin\MauticEvolutionBundle\Form\Type\MetaBusinessTemplateType::class)
+        ->public()
+        ->tag('form.type');
+
+    $services->set(MauticPlugin\MauticEvolutionBundle\Form\Type\MetaTemplateMappingType::class)
+        ->public()
         ->tag('form.type');
 };

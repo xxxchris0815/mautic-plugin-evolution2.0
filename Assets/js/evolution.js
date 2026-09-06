@@ -278,6 +278,32 @@ mQuery(document).ready(function() {
             }
         });
     });
+
+    var toggleMetaHeaderFields = function () {
+        var type = mQuery('.js-meta-header-type').val();
+        if (!type) {
+            return;
+        }
+        mQuery('.js-meta-header-text').toggle(type === 'TEXT');
+        mQuery('.js-meta-header-media').toggle(type === 'IMAGE' || type === 'VIDEO' || type === 'DOCUMENT');
+    };
+
+    var toggleMetaButtonFields = function () {
+        mQuery('.js-meta-button-type').each(function () {
+            var select = mQuery(this);
+            var index = select.data('button-index');
+            var type = select.val();
+            var showText = type && type !== 'NONE';
+            mQuery('.js-meta-button-' + index + '.js-meta-button-text').toggle(!!showText);
+            mQuery('.js-meta-button-' + index + '.js-meta-button-url').toggle(type === 'URL');
+            mQuery('.js-meta-button-' + index + '.js-meta-button-phone').toggle(type === 'PHONE_NUMBER');
+        });
+    };
+
+    mQuery(document).on('change', '.js-meta-header-type', toggleMetaHeaderFields);
+    mQuery(document).on('change', '.js-meta-button-type', toggleMetaButtonFields);
+    toggleMetaHeaderFields();
+    toggleMetaButtonFields();
 });
 
 // Export for global access

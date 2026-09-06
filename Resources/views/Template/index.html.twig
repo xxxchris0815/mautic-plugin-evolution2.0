@@ -25,6 +25,10 @@
     </div>
     
     <div class="panel-body">
+        <div class="alert alert-info">
+            {{ 'mautic.evolution.template.local_vs_meta'|trans }}
+            <a href="{{ path('mautic_evolution_meta_template_index') }}">{{ 'mautic.evolution.meta_templates'|trans }}</a>
+        </div>
         {% if items|length > 0 %}
             <div class="table-responsive">
                 <table class="table table-hover table-striped">

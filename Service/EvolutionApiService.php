@@ -6,11 +6,13 @@ namespace MauticPlugin\MauticEvolutionBundle\Service;
 
 use GuzzleHttp\Client;
 use GuzzleHttp\Exception\GuzzleException;
+use GuzzleHttp\Exception\RequestException;
 use Mautic\CoreBundle\Helper\UserHelper;
 use Mautic\LeadBundle\Entity\Lead;
 use Mautic\LeadBundle\Entity\LeadEventLog;
 use Mautic\PluginBundle\Helper\IntegrationHelper;
 use MauticPlugin\MauticEvolutionBundle\Helper\PhoneNumberHelper;
+use MauticPlugin\MauticEvolutionBundle\Helper\TemplatePayloadBuilder;
 use Psr\Log\LoggerInterface;
 use Doctrine\ORM\EntityManagerInterface;
 
@@ -175,7 +177,19 @@ class EvolutionApiService
 
     public function findTemplates(): array
     {
-        return $this->makeRequest('GET', '/template/find/' . $this->getInstance());
+        $result = $this->makeRequest('GET', '/template/find/' . $this->getInstance());
+        if (!empty($result['success'])) {
+            return $result;
+        }
+
+        $fallback = $this->makeRequest('GET', '/business/findTemplates/' . $this->getInstance());
+        if (!empty($fallback['success'])) {
+            $this->logger->info('Evolution templates loaded via business/findTemplates fallback');
+
+            return $fallback;
+        }
+
+        return $result;
     }
 
     /**
@@ -506,15 +520,13 @@ class EvolutionApiService
                 return $result;
             } 
 
-            // Exceção personalizada para erro HTTP (status 4xx ou 5xx)
             $errorDetails = [
                 'method' => $method,
                 'endpoint' => $endpoint,
-                'data' => (string) $response->getBody(),
+                'data' => is_array($responseData) ? $responseData : (string) $response->getBody(),
                 'status_code' => $response->getStatusCode()
             ];
             
-            // Caso o código de status não seja 2xx, retorna erro estruturado (sem lançar exceção)
             if ((int) $response->getStatusCode() === 404) {
                 $this->logger->warning('Evolution API HTTP 404', $errorDetails);
             } else {
@@ -522,18 +534,28 @@ class EvolutionApiService
             }
             return [
                 'success' => false,
-                'error' => 'HTTP error',
+                'error' => TemplatePayloadBuilder::extractErrorMessage($responseData) ?? 'HTTP error',
                 'status_code' => $response->getStatusCode(),
                 'response' => $errorDetails['data'],
             ];
             
         } catch (GuzzleException $e) {
             $errorMessage = $e->getMessage();
+            $statusCode = $e->getCode();
+            if ($e instanceof RequestException && $e->hasResponse()) {
+                $statusCode = $e->getResponse()->getStatusCode();
+                $responseBody = (string) $e->getResponse()->getBody();
+                $decoded = json_decode($responseBody, true);
+                $parsed = TemplatePayloadBuilder::extractErrorMessage(is_array($decoded) ? $decoded : $responseBody);
+                if ($parsed !== null) {
+                    $errorMessage = $parsed;
+                }
+            }
             $context = [
                 'method' => $method,
                 'endpoint' => $endpoint,
                 'data' => $data,
-                'status_code' => $e->getCode(),
+                'status_code' => $statusCode,
             ];
 
             $this->logger->error('Evolution API Error', $context);
@@ -547,7 +569,7 @@ class EvolutionApiService
             return [
                 'success' => false,
                 'error' => $errorMessage,
-                'status_code' => $e->getCode(),
+                'status_code' => $statusCode,
             ];
         }
     }

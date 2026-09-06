@@ -47,6 +47,35 @@ return [
                 'controller' => 'MauticPlugin\MauticEvolutionBundle\Controller\TemplateController::syncAction',
                 'method'     => 'POST',
             ],
+            'mautic_evolution_meta_template_sync' => [
+                'path'       => '/evolution/business-templates/sync',
+                'controller' => 'MauticPlugin\MauticEvolutionBundle\Controller\MetaTemplateController::syncAction',
+            ],
+            'mautic_evolution_meta_template_new' => [
+                'path'       => '/evolution/business-templates/new',
+                'controller' => 'MauticPlugin\MauticEvolutionBundle\Controller\MetaTemplateController::newAction',
+            ],
+            'mautic_evolution_meta_template_view' => [
+                'path'       => '/evolution/business-templates/view/{objectId}',
+                'controller' => 'MauticPlugin\MauticEvolutionBundle\Controller\MetaTemplateController::viewAction',
+                'requirements' => ['objectId' => '\d+'],
+            ],
+            'mautic_evolution_meta_template_map' => [
+                'path'       => '/evolution/business-templates/map/{objectId}',
+                'controller' => 'MauticPlugin\MauticEvolutionBundle\Controller\MetaTemplateController::mapAction',
+                'requirements' => ['objectId' => '\d+'],
+            ],
+            'mautic_evolution_meta_template_delete' => [
+                'path'       => '/evolution/business-templates/delete/{objectId}',
+                'controller' => 'MauticPlugin\MauticEvolutionBundle\Controller\MetaTemplateController::deleteAction',
+                'requirements' => ['objectId' => '\d+'],
+            ],
+            'mautic_evolution_meta_template_index' => [
+                'path'       => '/evolution/business-templates/{page}',
+                'controller' => 'MauticPlugin\MauticEvolutionBundle\Controller\MetaTemplateController::indexAction',
+                'defaults'   => ['page' => 1],
+                'requirements' => ['page' => '\d+'],
+            ],
         ],
         'public' => [
             'mautic_evolution_webhook_receive' => [
@@ -94,6 +123,13 @@ return [
                 'parent'    => 'mautic.core.channels',
                 'priority'  => 100,
                 'id'        => 'mautic_evolution_templates',
+            ],
+            'mautic.evolution.meta_templates' => [
+                'route'     => 'mautic_evolution_meta_template_index',
+                'access'    => 'evolution:templates:view',
+                'parent'    => 'mautic.core.channels',
+                'priority'  => 99,
+                'id'        => 'mautic_evolution_meta_templates',
             ],
         ],
     ],

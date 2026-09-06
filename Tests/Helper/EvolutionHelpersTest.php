@@ -106,4 +106,77 @@ final class TemplatePayloadBuilderTest extends TestCase
         $this->assertSame('welcome', $templates[0]['name']);
         $this->assertSame('APPROVED', $templates[0]['status']);
     }
+
+    public function testBuildCreateComponentsIncludesExamplesAndButtons(): void
+    {
+        $components = TemplatePayloadBuilder::buildCreateComponents([
+            'headerType' => 'TEXT',
+            'headerText' => 'Order {{1}}',
+            'headerExample' => '12345',
+            'body' => 'Hello {{1}}, order {{2}} is ready.',
+            'exampleValues' => ['Anna', '12345'],
+            'footer' => 'Thanks',
+            'buttons' => [
+                ['type' => 'QUICK_REPLY', 'text' => 'Help'],
+                ['type' => 'URL', 'text' => 'Track', 'url' => 'https://example.com/{{1}}', 'example' => 'abc'],
+            ],
+        ]);
+
+        $this->assertSame('HEADER', $components[0]['type']);
+        $this->assertSame(['header_text' => ['12345']], $components[0]['example']);
+        $this->assertSame('BODY', $components[1]['type']);
+        $this->assertSame([['Anna', '12345']], $components[1]['example']['body_text']);
+        $this->assertSame('FOOTER', $components[2]['type']);
+        $this->assertSame('BUTTONS', $components[3]['type']);
+        $this->assertSame('URL', $components[3]['buttons'][1]['type']);
+        $this->assertSame(['abc'], $components[3]['buttons'][1]['example']);
+    }
+
+    public function testFromFormDataBuildsPayloadAndParameterFields(): void
+    {
+        $built = TemplatePayloadBuilder::fromFormData([
+            'name' => 'Order Update',
+            'language' => 'de',
+            'category' => 'UTILITY',
+            'allowCategoryChange' => true,
+            'headerType' => 'NONE',
+            'body' => 'Hallo {{1}}',
+            'exampleValues' => "Max\n",
+            'button1Type' => 'QUICK_REPLY',
+            'button1Text' => 'OK',
+            'button2Type' => 'NONE',
+            'button3Type' => 'NONE',
+            'paramField1' => 'firstname',
+        ]);
+
+        $this->assertSame('order_update', $built['payload']['name']);
+        $this->assertSame('de', $built['payload']['language']);
+        $this->assertSame('UTILITY', $built['payload']['category']);
+        $this->assertTrue($built['payload']['allowCategoryChange']);
+        $this->assertSame('{contactfield=firstname}', $built['parameterFields']['1']);
+        $this->assertSame('QUICK_REPLY', $built['payload']['components'][1]['buttons'][0]['type']);
+    }
+
+    public function testExtractErrorMessageFromMetaEnvelope(): void
+    {
+        $this->assertSame(
+            'Template name already exists',
+            TemplatePayloadBuilder::extractErrorMessage([
+                'error' => true,
+                'response' => [
+                    'message' => 'Template name already exists',
+                ],
+            ])
+        );
+        $this->assertSame(
+            'Invalid parameter',
+            TemplatePayloadBuilder::extractErrorMessage([
+                'error' => [
+                    'error_user_msg' => 'Invalid parameter',
+                    'message' => 'invalid',
+                ],
+            ])
+        );
+        $this->assertNull(TemplatePayloadBuilder::extractErrorMessage(['success' => true]));
+    }
 }

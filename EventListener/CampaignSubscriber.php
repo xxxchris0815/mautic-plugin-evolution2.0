@@ -14,6 +14,7 @@ use MauticPlugin\MauticEvolutionBundle\EvolutionEvents;
 use MauticPlugin\MauticEvolutionBundle\Form\Type\SendMediaActionType;
 use MauticPlugin\MauticEvolutionBundle\Form\Type\SendMessageActionType;
 use MauticPlugin\MauticEvolutionBundle\Form\Type\SendTemplateActionType;
+use MauticPlugin\MauticEvolutionBundle\Helper\MessageStatsCalculator;
 use MauticPlugin\MauticEvolutionBundle\Helper\TemplatePayloadBuilder;
 use MauticPlugin\MauticEvolutionBundle\Helper\TokenHelper;
 use MauticPlugin\MauticEvolutionBundle\Model\MessageModel;
@@ -152,18 +153,21 @@ class CampaignSubscriber implements EventSubscriberInterface
             return;
         }
 
-        $stats = $this->messageModel->getCampaignEventStats((int) $eventId);
-        $sent = $stats['sent'] + $stats['delivered'] + $stats['read'];
-        $delivered = $stats['delivered'] + $stats['read'];
+        $stats = MessageStatsCalculator::withRates($this->messageModel->getCampaignEventStats((int) $eventId));
+        $sent = $stats['accepted'];
+        $delivered = $stats['reached'];
         $read = $stats['read'];
         $failed = $stats['failed'];
+        $replied = $stats['replied'];
 
         $eventPreview->addEventStat('sent_count', $sent);
         $eventPreview->addEventStat('delivered_count', $delivered);
         $eventPreview->addEventStat('read_count', $read);
+        $eventPreview->addEventStat('replied_count', $replied);
         $eventPreview->addEventStat('failed_count', $failed);
-        $eventPreview->addEventStat('delivery_rate', $sent > 0 ? round(($delivered / $sent) * 100, 2).'%' : '0%');
-        $eventPreview->addEventStat('read_rate', $sent > 0 ? round(($read / $sent) * 100, 2).'%' : '0%');
+        $eventPreview->addEventStat('delivery_rate', MessageStatsCalculator::formatPercent($stats['delivery_rate']));
+        $eventPreview->addEventStat('read_rate', MessageStatsCalculator::formatPercent($stats['read_rate']));
+        $eventPreview->addEventStat('reply_rate', MessageStatsCalculator::formatPercent($stats['reply_rate']));
     }
 
     private function sendMessages(PendingEvent $event): void
@@ -241,7 +245,8 @@ class CampaignSubscriber implements EventSubscriberInterface
                     (string) ($config['phone_field'] ?? 'mobile'),
                     $this->normalizeKeyValueCollection($config['headers'] ?? []),
                     $this->normalizeKeyValueCollection($config['data'] ?? []),
-                    $context
+                    $context,
+                    $template
                 );
             }
 

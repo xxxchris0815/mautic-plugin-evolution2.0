@@ -6,6 +6,7 @@ namespace MauticPlugin\MauticEvolutionBundle\Controller;
 
 use Doctrine\Persistence\ManagerRegistry;
 use MauticPlugin\MauticEvolutionBundle\Entity\EvolutionTemplate;
+use MauticPlugin\MauticEvolutionBundle\Model\MessageModel;
 use MauticPlugin\MauticEvolutionBundle\Model\TemplateModel;
 use MauticPlugin\MauticEvolutionBundle\Service\TemplateSyncService;
 use Mautic\CoreBundle\Controller\FormController;
@@ -55,6 +56,28 @@ class TemplateController extends FormController
         );
 
         parent::__construct($formFactory, $fieldHelper, $doctrine, $modelFactory, $userHelper, $coreParametersHelper, $dispatcher, $translator, $flashBag, $requestStack, $security);
+    }
+
+    /**
+     * @param array<string, mixed> $args
+     *
+     * @return array<string, mixed>
+     */
+    protected function getViewArguments(array $args, $action): array
+    {
+        $args = parent::getViewArguments($args, $action);
+        $item = $args['viewParameters']['item'] ?? ($args['item'] ?? null);
+        if ($action === 'view' && $item instanceof EvolutionTemplate) {
+            /** @var MessageModel $messageModel */
+            $messageModel = $this->getModel('evolution.message');
+            if (isset($args['viewParameters'])) {
+                $args['viewParameters']['stats'] = $messageModel->getTemplateStats($item);
+            } else {
+                $args['stats'] = $messageModel->getTemplateStats($item);
+            }
+        }
+
+        return $args;
     }
 
     /**

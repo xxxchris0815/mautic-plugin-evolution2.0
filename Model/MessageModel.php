@@ -9,6 +9,8 @@ use Mautic\CoreBundle\Model\FormModel;
 use Mautic\CoreBundle\Security\Permissions\CorePermissions;
 use Mautic\CoreBundle\Translation\Translator;
 use Mautic\LeadBundle\Entity\Lead;
+use MauticPlugin\MauticEvolutionBundle\Entity\EvolutionTemplate;
+use MauticPlugin\MauticEvolutionBundle\Helper\MessageStatsCalculator;
 use MauticPlugin\MauticEvolutionBundle\Helper\PhoneNumberHelper;
 use MauticPlugin\MauticEvolutionBundle\Helper\TemplatePayloadBuilder;
 use MauticPlugin\MauticEvolutionBundle\Helper\TokenHelper;
@@ -64,7 +66,7 @@ class MessageModel extends FormModel
      * @param array<string, mixed> $metadata
      * @param array{campaignId?: ?int, campaignEventId?: ?int, campaignEventLogId?: ?int} $campaignContext
      */
-    public function sendMessage(Lead $lead, string $message, ?string $templateName = null, ?string $groupAlias = null, string $phoneField = 'mobile', array $headers = [], array $metadata = [], array $campaignContext = []): ?EvolutionMessage
+    public function sendMessage(Lead $lead, string $message, ?string $templateName = null, ?string $groupAlias = null, string $phoneField = 'mobile', array $headers = [], array $metadata = [], array $campaignContext = [], ?EvolutionTemplate $template = null): ?EvolutionMessage
     {
         $phoneNumber = $this->getLeadPhoneNumber($lead, $phoneField);
 
@@ -78,7 +80,7 @@ class MessageModel extends FormModel
             $parsedHeaders = TokenHelper::replaceMap($headers, $lead, true);
             $parsedMetadata = TokenHelper::replaceMap($metadata, $lead, false);
 
-            $evolutionMessage = $this->createPendingMessage($lead, $phoneNumber, $interpolatedMessage, $templateName, 'text', $parsedMetadata, $campaignContext);
+            $evolutionMessage = $this->createPendingMessage($lead, $phoneNumber, $interpolatedMessage, $templateName, 'text', $parsedMetadata, $campaignContext, $template);
 
             $response = !empty($groupAlias)
                 ? $this->evolutionApiService->sendTextWithGroupBalancing($groupAlias, $phoneNumber, $interpolatedMessage, [], $lead, null, $parsedHeaders, $parsedMetadata)
@@ -106,7 +108,7 @@ class MessageModel extends FormModel
      */
     public function sendOfficialTemplate(
         Lead $lead,
-        \MauticPlugin\MauticEvolutionBundle\Entity\EvolutionTemplate $template,
+        EvolutionTemplate $template,
         array $components,
         string $phoneField = 'mobile',
         ?string $groupAlias = null,
@@ -130,7 +132,8 @@ class MessageModel extends FormModel
             $template->getName(),
             'template',
             $parsedMetadata,
-            $campaignContext
+            $campaignContext,
+            $template
         );
 
         $response = $this->evolutionApiService->sendTemplate(
@@ -175,11 +178,34 @@ class MessageModel extends FormModel
     }
 
     /**
-     * @return array{sent: int, delivered: int, read: int, failed: int, pending: int}
+     * @return array<string, float|int>
      */
     public function getCampaignEventStats(int $campaignEventId): array
     {
         return $this->getRepository()->getStatsSummaryForCampaignEvent($campaignEventId);
+    }
+
+    /**
+     * @return array<string, float|int>
+     */
+    public function getTemplateStats(EvolutionTemplate $template): array
+    {
+        $id = $template->getId();
+        if (!$id) {
+            return MessageStatsCalculator::empty();
+        }
+
+        return $this->getRepository()->getStatsForTemplate($id, $template->getName(), $template->getLanguage());
+    }
+
+    /**
+     * @param list<int> $templateIds
+     *
+     * @return array<int, array<string, float|int>>
+     */
+    public function getStatsIndexedByTemplateId(array $templateIds): array
+    {
+        return $this->getRepository()->getStatsIndexedByTemplateId($templateIds);
     }
 
     /**
@@ -318,16 +344,22 @@ class MessageModel extends FormModel
         ?string $templateName,
         string $messageType,
         array $metadata,
-        array $campaignContext
+        array $campaignContext,
+        ?EvolutionTemplate $template = null
     ): EvolutionMessage {
         $evolutionMessage = new EvolutionMessage();
         $evolutionMessage->setLead($lead);
         $evolutionMessage->setPhoneNumber($phoneNumber);
         $evolutionMessage->setMessageContent($content);
-        $evolutionMessage->setTemplateName($templateName);
+        $evolutionMessage->setTemplateName($template?->getName() ?? $templateName);
         $evolutionMessage->setStatus('pending');
         $evolutionMessage->setMessageType($messageType);
         $evolutionMessage->setInstance($this->evolutionApiService->getInstance());
+        if ($template !== null) {
+            $evolutionMessage->setTemplateId($template->getId());
+            $evolutionMessage->setTemplateLanguage($template->getLanguage());
+            $evolutionMessage->setTemplateSource($template->getSource() ?: 'local');
+        }
         if ($metadata !== []) {
             $evolutionMessage->setMetadata($metadata);
         }

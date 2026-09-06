@@ -79,6 +79,10 @@ class CampaignTrackingService
 
     public function triggerReply(EvolutionMessage $relatedOutgoing, string $replyText): void
     {
+        if (!$relatedOutgoing->getRepliedAt()) {
+            $relatedOutgoing->setRepliedAt(new \DateTime());
+            $this->entityManager->persist($relatedOutgoing);
+        }
         $this->appendCampaignLogMetadata($relatedOutgoing, 'replied', new \DateTime(), ['reply' => $replyText]);
         $this->entityManager->flush();
         $this->executeRealtime($relatedOutgoing, EvolutionEvents::ON_CAMPAIGN_DECISION, 'evolution.replied');

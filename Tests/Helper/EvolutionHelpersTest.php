@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use MauticPlugin\MauticEvolutionBundle\Helper\MessageStatsCalculator;
 use MauticPlugin\MauticEvolutionBundle\Helper\PhoneNumberHelper;
 use MauticPlugin\MauticEvolutionBundle\Helper\TemplatePayloadBuilder;
 use MauticPlugin\MauticEvolutionBundle\Helper\WebhookStatusMapper;
@@ -178,5 +179,38 @@ final class TemplatePayloadBuilderTest extends TestCase
             ])
         );
         $this->assertNull(TemplatePayloadBuilder::extractErrorMessage(['success' => true]));
+    }
+}
+
+final class MessageStatsCalculatorTest extends TestCase
+{
+    public function testRatesUseAcceptedSendsAsDenominator(): void
+    {
+        $stats = MessageStatsCalculator::withRates([
+            'pending' => 1,
+            'sent' => 2,
+            'delivered' => 3,
+            'read' => 5,
+            'failed' => 2,
+            'replied' => 1,
+            'total' => 13,
+        ]);
+
+        $this->assertSame(10, $stats['accepted']);
+        $this->assertSame(8, $stats['reached']);
+        $this->assertSame(80.0, $stats['delivery_rate']);
+        $this->assertSame(50.0, $stats['read_rate']);
+        $this->assertSame(10.0, $stats['reply_rate']);
+        $this->assertSame(16.67, $stats['fail_rate']);
+        $this->assertSame('50%', MessageStatsCalculator::formatPercent(50.0));
+        $this->assertSame('16.67%', MessageStatsCalculator::formatPercent(16.67));
+    }
+
+    public function testEmptyRatesAreZero(): void
+    {
+        $stats = MessageStatsCalculator::empty();
+        $this->assertSame(0, $stats['accepted']);
+        $this->assertSame(0.0, $stats['delivery_rate']);
+        $this->assertSame('0%', MessageStatsCalculator::formatPercent(0.0));
     }
 }

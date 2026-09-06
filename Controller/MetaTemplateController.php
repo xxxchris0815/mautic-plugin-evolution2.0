@@ -17,6 +17,7 @@ use MauticPlugin\MauticEvolutionBundle\Entity\EvolutionTemplate;
 use MauticPlugin\MauticEvolutionBundle\Form\Type\MetaBusinessTemplateType;
 use MauticPlugin\MauticEvolutionBundle\Form\Type\MetaTemplateMappingType;
 use MauticPlugin\MauticEvolutionBundle\Helper\TemplatePayloadBuilder;
+use MauticPlugin\MauticEvolutionBundle\Model\MessageModel;
 use MauticPlugin\MauticEvolutionBundle\Model\TemplateModel;
 use MauticPlugin\MauticEvolutionBundle\Service\TemplateSyncService;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
@@ -46,15 +47,24 @@ class MetaTemplateController extends FormController
         parent::__construct($this->metaFormFactory, $fieldHelper, $doctrine, $modelFactory, $userHelper, $coreParametersHelper, $dispatcher, $translator, $flashBag, $requestStack, $security);
     }
 
-    public function indexAction(TemplateModel $templateModel): Response
+    public function indexAction(TemplateModel $templateModel, MessageModel $messageModel): Response
     {
         if (!$this->security->isGranted('evolution:templates:view')) {
             return $this->accessDenied();
         }
 
+        $items = $templateModel->getTemplatesBySource('evolution');
+        $ids = [];
+        foreach ($items as $item) {
+            if ($item->getId()) {
+                $ids[] = $item->getId();
+            }
+        }
+
         return $this->delegateView([
             'viewParameters' => [
-                'items' => $templateModel->getTemplatesBySource('evolution'),
+                'items' => $items,
+                'statsById' => $messageModel->getStatsIndexedByTemplateId($ids),
                 'permissions' => $this->security->isGranted(
                     [
                         'evolution:templates:view',
@@ -168,7 +178,7 @@ class MetaTemplateController extends FormController
         ]);
     }
 
-    public function viewAction(Request $request, int $objectId, TemplateModel $templateModel): Response
+    public function viewAction(Request $request, int $objectId, TemplateModel $templateModel, MessageModel $messageModel): Response
     {
         if (!$this->security->isGranted('evolution:templates:view')) {
             return $this->accessDenied();
@@ -211,6 +221,7 @@ class MetaTemplateController extends FormController
             'viewParameters' => [
                 'item' => $entity,
                 'mapForm' => $mapForm->createView(),
+                'stats' => $messageModel->getTemplateStats($entity),
                 'permissions' => $this->security->isGranted(
                     [
                         'evolution:templates:view',
@@ -230,9 +241,9 @@ class MetaTemplateController extends FormController
         ]);
     }
 
-    public function mapAction(Request $request, int $objectId, TemplateModel $templateModel): Response
+    public function mapAction(Request $request, int $objectId, TemplateModel $templateModel, MessageModel $messageModel): Response
     {
-        return $this->viewAction($request, $objectId, $templateModel);
+        return $this->viewAction($request, $objectId, $templateModel, $messageModel);
     }
 
     public function deleteAction(int $objectId, TemplateModel $templateModel, TemplateSyncService $syncService): Response

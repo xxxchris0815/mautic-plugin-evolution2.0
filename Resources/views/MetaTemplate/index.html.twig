@@ -37,6 +37,10 @@
                             <th>{{ 'mautic.evolution.meta_template.language'|trans }}</th>
                             <th>{{ 'mautic.evolution.meta_template.category'|trans }}</th>
                             <th>{{ 'mautic.evolution.meta_template.status'|trans }}</th>
+                            <th>{{ 'mautic.evolution.stats.sent'|trans }}</th>
+                            <th>{{ 'mautic.evolution.stats.delivered'|trans }}</th>
+                            <th>{{ 'mautic.evolution.stats.read'|trans }}</th>
+                            <th>{{ 'mautic.evolution.stats.replied'|trans }}</th>
                             <th>{{ 'mautic.core.actions'|trans }}</th>
                         </tr>
                     </thead>
@@ -58,6 +62,11 @@
                                 <td>
                                     <span class="label label-{{ statusClass }}">{{ status }}</span>
                                 </td>
+                                {% set rowStats = statsById[item.id]|default({accepted: 0, reached: 0, read: 0, replied: 0, read_rate: 0}) %}
+                                <td>{{ rowStats.accepted }}</td>
+                                <td>{{ rowStats.reached }}</td>
+                                <td>{{ rowStats.read }}{% if rowStats.accepted > 0 %} <span class="text-muted small">({{ rowStats.read_rate }}%)</span>{% endif %}</td>
+                                <td>{{ rowStats.replied }}</td>
                                 <td>
                                     <div class="btn-group">
                                         <a href="{{ path('mautic_evolution_meta_template_view', {'objectId': item.id}) }}" class="btn btn-default btn-xs">

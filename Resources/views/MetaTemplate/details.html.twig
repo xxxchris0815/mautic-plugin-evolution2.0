@@ -36,8 +36,16 @@
                             <dd>{{ item.evolutionId }}</dd>
                         {% endif %}
                     </dl>
+                </div>
+            </div>
 
-                    <h4>{{ 'mautic.evolution.meta_template.section.body'|trans }}</h4>
+            {{ include('@MauticEvolution/Stats/funnel.html.twig', {'stats': stats|default({})}) }}
+
+            <div class="panel panel-default">
+                <div class="panel-heading">
+                    <h3 class="panel-title">{{ 'mautic.evolution.meta_template.section.body'|trans }}</h3>
+                </div>
+                <div class="panel-body">
                     <div class="well">
                         {% if item.content %}
                             {{ item.content|nl2br }}

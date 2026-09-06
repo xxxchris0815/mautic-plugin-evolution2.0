@@ -142,6 +142,26 @@ class EvolutionMessage extends CommonEntity
      */
     protected ?string $instance = null;
 
+    /**
+     * @var int|null
+     */
+    protected ?int $templateId = null;
+
+    /**
+     * @var string|null
+     */
+    protected ?string $templateLanguage = null;
+
+    /**
+     * @var string|null
+     */
+    protected ?string $templateSource = null;
+
+    /**
+     * @var \DateTime|null
+     */
+    protected ?\DateTime $repliedAt = null;
+
     public function getId(): ?int
     {
         return $this->id;
@@ -373,6 +393,50 @@ class EvolutionMessage extends CommonEntity
         return $this;
     }
 
+    public function getTemplateId(): ?int
+    {
+        return $this->templateId;
+    }
+
+    public function setTemplateId(?int $templateId): self
+    {
+        $this->templateId = $templateId;
+        return $this;
+    }
+
+    public function getTemplateLanguage(): ?string
+    {
+        return $this->templateLanguage;
+    }
+
+    public function setTemplateLanguage(?string $templateLanguage): self
+    {
+        $this->templateLanguage = $templateLanguage;
+        return $this;
+    }
+
+    public function getTemplateSource(): ?string
+    {
+        return $this->templateSource;
+    }
+
+    public function setTemplateSource(?string $templateSource): self
+    {
+        $this->templateSource = $templateSource;
+        return $this;
+    }
+
+    public function getRepliedAt(): ?\DateTime
+    {
+        return $this->repliedAt;
+    }
+
+    public function setRepliedAt(?\DateTime $repliedAt): self
+    {
+        $this->repliedAt = $repliedAt;
+        return $this;
+    }
+
     /**
      * Configura os metadados da entidade
      */
@@ -479,9 +543,34 @@ class EvolutionMessage extends CommonEntity
             ->nullable()
             ->build();
 
+        $builder->createField('templateId', Types::INTEGER)
+            ->columnName('template_id')
+            ->nullable()
+            ->build();
+
+        $builder->createField('templateLanguage', Types::STRING)
+            ->columnName('template_language')
+            ->length(20)
+            ->nullable()
+            ->build();
+
+        $builder->createField('templateSource', Types::STRING)
+            ->columnName('template_source')
+            ->length(20)
+            ->nullable()
+            ->build();
+
+        $builder->createField('repliedAt', Types::DATETIME_MUTABLE)
+            ->columnName('replied_at')
+            ->nullable()
+            ->build();
+
         $builder->addIndex(['message_id'], 'evolution_message_id');
         $builder->addIndex(['campaign_event_id'], 'evolution_campaign_event');
+        $builder->addIndex(['campaign_id'], 'evolution_campaign_id');
         $builder->addIndex(['status'], 'evolution_message_status');
+        $builder->addIndex(['template_id'], 'evolution_message_template_id');
+        $builder->addIndex(['template_name'], 'evolution_message_template_name');
 
         $builder->addDateAdded();
     }

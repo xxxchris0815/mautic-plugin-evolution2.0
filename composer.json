@@ -1,12 +1,22 @@
 {
     "name": "bellinatiperez/mautic-plugin-evolution",
-    "description": "Evolution API Integration",
+    "description": "Evolution API integration for Mautic 6/7 with WhatsApp templates, campaign tracking and reporting",
     "type": "mautic-plugin",
+    "license": "GPL-3.0-or-later",
     "keywords": [
         "mautic",
         "plugin",
-        "integration"
+        "whatsapp",
+        "evolution-api"
     ],
+    "require": {
+        "php": ">=8.2"
+    },
+    "autoload": {
+        "psr-4": {
+            "MauticPlugin\\MauticEvolutionBundle\\": ""
+        }
+    },
     "extra": {
         "install-directory-name": "MauticEvolutionBundle"
     },

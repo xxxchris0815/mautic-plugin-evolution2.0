@@ -64,6 +64,41 @@ class EvolutionTemplate extends FormEntity
     protected $category = null;
 
     /**
+     * @var string
+     */
+    protected ?string $source = 'local';
+
+    /**
+     * @var string|null
+     */
+    protected ?string $language = 'en';
+
+    /**
+     * @var string|null
+     */
+    protected ?string $categoryType = null;
+
+    /**
+     * @var string|null
+     */
+    protected ?string $status = 'LOCAL';
+
+    /**
+     * @var string|null
+     */
+    protected ?string $evolutionId = null;
+
+    /**
+     * @var array|null
+     */
+    protected ?array $components = null;
+
+    /**
+     * @var array|null
+     */
+    protected ?array $parameterFields = null;
+
+    /**
      * Método para configurar metadados do Doctrine
      */
     public static function loadMetadata(ORM\ClassMetadata $metadata): void
@@ -77,7 +112,6 @@ class EvolutionTemplate extends FormEntity
 
         $builder->createField('name', Types::STRING)
             ->length(100)
-            ->unique()
             ->build();
 
         $builder->createField('description', Types::TEXT)
@@ -102,6 +136,44 @@ class EvolutionTemplate extends FormEntity
         $builder->createField('metadata', Types::JSON)
             ->nullable()
             ->build();
+
+        $builder->createField('source', Types::STRING)
+            ->length(20)
+            ->nullable()
+            ->build();
+
+        $builder->createField('language', Types::STRING)
+            ->length(16)
+            ->nullable()
+            ->build();
+
+        $builder->createField('categoryType', Types::STRING)
+            ->columnName('category_type')
+            ->length(30)
+            ->nullable()
+            ->build();
+
+        $builder->createField('status', Types::STRING)
+            ->length(30)
+            ->nullable()
+            ->build();
+
+        $builder->createField('evolutionId', Types::STRING)
+            ->columnName('evolution_id')
+            ->length(64)
+            ->nullable()
+            ->build();
+
+        $builder->createField('components', Types::JSON)
+            ->nullable()
+            ->build();
+
+        $builder->createField('parameterFields', Types::JSON)
+            ->columnName('parameter_fields')
+            ->nullable()
+            ->build();
+
+        $builder->addIndex(['name', 'language'], 'evolution_template_name_lang');
 
         $builder->addCategory();
     }
@@ -240,5 +312,133 @@ class EvolutionTemplate extends FormEntity
     {
         $this->category = $category;
         return $this;
+    }
+
+    public function getSource(): string
+    {
+        return $this->source ?: 'local';
+    }
+
+    public function setSource(string $source): self
+    {
+        $this->source = $source;
+        return $this;
+    }
+
+    public function getLanguage(): ?string
+    {
+        return $this->language;
+    }
+
+    public function setLanguage(?string $language): self
+    {
+        $this->language = $language;
+        return $this;
+    }
+
+    public function getCategoryType(): ?string
+    {
+        return $this->categoryType;
+    }
+
+    public function setCategoryType(?string $categoryType): self
+    {
+        $this->categoryType = $categoryType;
+        return $this;
+    }
+
+    public function getStatus(): ?string
+    {
+        return $this->status;
+    }
+
+    public function setStatus(?string $status): self
+    {
+        $this->status = $status;
+        return $this;
+    }
+
+    public function getEvolutionId(): ?string
+    {
+        return $this->evolutionId;
+    }
+
+    public function setEvolutionId(?string $evolutionId): self
+    {
+        $this->evolutionId = $evolutionId;
+        return $this;
+    }
+
+    public function getComponents(): ?array
+    {
+        return $this->components;
+    }
+
+    public function setComponents(?array $components): self
+    {
+        $this->components = $components;
+        return $this;
+    }
+
+    public function getParameterFields(): ?array
+    {
+        return $this->parameterFields;
+    }
+
+    public function setParameterFields(?array $parameterFields): self
+    {
+        $this->parameterFields = $parameterFields;
+        return $this;
+    }
+
+    public function getIsActive(): bool
+    {
+        return $this->isActive();
+    }
+
+    public function isEvolutionTemplate(): bool
+    {
+        return $this->getSource() === 'evolution';
+    }
+
+    public function isApproved(): bool
+    {
+        if ($this->source !== 'evolution') {
+            return $this->isActive;
+        }
+
+        return $this->isActive && strtoupper((string) $this->status) === 'APPROVED';
+    }
+
+    /**
+     * @param array<string, mixed> $variables
+     */
+    public function render(array $variables): string
+    {
+        $content = $this->content ?? '';
+        foreach ($variables as $key => $value) {
+            $content = str_replace(['{'.$key.'}', '{{'.$key.'}}'], (string) $value, $content);
+        }
+
+        return $content;
+    }
+
+    /**
+     * @param array<string, mixed> $variables
+     *
+     * @return list<string>
+     */
+    public function validateVariables(array $variables): array
+    {
+        $required = $this->variables ?? [];
+        $missing = [];
+        foreach ($required as $name) {
+            $key = is_string($name) ? $name : (string) $name;
+            if ($key !== '' && !array_key_exists($key, $variables)) {
+                $missing[] = $key;
+            }
+        }
+
+        return $missing;
     }
 }

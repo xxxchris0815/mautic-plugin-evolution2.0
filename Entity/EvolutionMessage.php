@@ -117,6 +117,31 @@ class EvolutionMessage extends CommonEntity
     #[ORM\Column(name: 'metadata', type: 'json', nullable: true)]
     protected ?array $metadata = null;
 
+    /**
+     * @var int|null
+     */
+    protected ?int $campaignId = null;
+
+    /**
+     * @var int|null
+     */
+    protected ?int $campaignEventId = null;
+
+    /**
+     * @var int|null
+     */
+    protected ?int $campaignEventLogId = null;
+
+    /**
+     * @var string|null
+     */
+    protected ?string $messageType = 'text';
+
+    /**
+     * @var string|null
+     */
+    protected ?string $instance = null;
+
     public function getId(): ?int
     {
         return $this->id;
@@ -293,6 +318,61 @@ class EvolutionMessage extends CommonEntity
         return $this;
     }
 
+    public function getCampaignId(): ?int
+    {
+        return $this->campaignId;
+    }
+
+    public function setCampaignId(?int $campaignId): self
+    {
+        $this->campaignId = $campaignId;
+        return $this;
+    }
+
+    public function getCampaignEventId(): ?int
+    {
+        return $this->campaignEventId;
+    }
+
+    public function setCampaignEventId(?int $campaignEventId): self
+    {
+        $this->campaignEventId = $campaignEventId;
+        return $this;
+    }
+
+    public function getCampaignEventLogId(): ?int
+    {
+        return $this->campaignEventLogId;
+    }
+
+    public function setCampaignEventLogId(?int $campaignEventLogId): self
+    {
+        $this->campaignEventLogId = $campaignEventLogId;
+        return $this;
+    }
+
+    public function getMessageType(): ?string
+    {
+        return $this->messageType;
+    }
+
+    public function setMessageType(?string $messageType): self
+    {
+        $this->messageType = $messageType;
+        return $this;
+    }
+
+    public function getInstance(): ?string
+    {
+        return $this->instance;
+    }
+
+    public function setInstance(?string $instance): self
+    {
+        $this->instance = $instance;
+        return $this;
+    }
+
     /**
      * Configura os metadados da entidade
      */
@@ -372,6 +452,36 @@ class EvolutionMessage extends CommonEntity
         $builder->createField('metadata', Types::JSON)
             ->nullable()
             ->build();
+
+        $builder->createField('campaignId', Types::INTEGER)
+            ->columnName('campaign_id')
+            ->nullable()
+            ->build();
+
+        $builder->createField('campaignEventId', Types::INTEGER)
+            ->columnName('campaign_event_id')
+            ->nullable()
+            ->build();
+
+        $builder->createField('campaignEventLogId', Types::INTEGER)
+            ->columnName('campaign_event_log_id')
+            ->nullable()
+            ->build();
+
+        $builder->createField('messageType', Types::STRING)
+            ->columnName('message_type')
+            ->length(30)
+            ->nullable()
+            ->build();
+
+        $builder->createField('instance', Types::STRING)
+            ->length(100)
+            ->nullable()
+            ->build();
+
+        $builder->addIndex(['message_id'], 'evolution_message_id');
+        $builder->addIndex(['campaign_event_id'], 'evolution_campaign_event');
+        $builder->addIndex(['status'], 'evolution_message_status');
 
         $builder->addDateAdded();
     }

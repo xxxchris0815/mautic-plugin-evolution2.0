@@ -159,6 +159,11 @@ class TemplateModel extends FormModel
         return $this->getRepository()->findByName($name);
     }
 
+    public function getTemplateByNameAndLanguage(string $name, ?string $language = null): ?EvolutionTemplate
+    {
+        return $this->getRepository()->findByNameAndLanguage($name, $language);
+    }
+
     /**
      * Retorna opções de templates para select
      */

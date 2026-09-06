@@ -217,18 +217,7 @@ var MauticEvolution = {
      * Format phone number for WhatsApp
      */
     formatPhoneNumber: function(phone) {
-        // Remove all non-numeric characters
         var cleaned = phone.replace(/\D/g, '');
-        
-        // Add country code if not present
-        if (cleaned.length === 11 && cleaned.startsWith('0')) {
-            cleaned = '55' + cleaned.substring(1);
-        } else if (cleaned.length === 10) {
-            cleaned = '55' + cleaned;
-        } else if (cleaned.length === 11 && !cleaned.startsWith('55')) {
-            cleaned = '55' + cleaned;
-        }
-        
         return cleaned;
     },
     
@@ -269,6 +258,26 @@ mQuery(document).ready(function() {
     
     // Auto-update variables when content changes
     mQuery(document).on('blur', '#evolution_template_content', MauticEvolution.updateVariablesField);
+
+    mQuery(document).on('click', '#evolution-sync-templates', function (e) {
+        e.preventDefault();
+        var btn = mQuery(this);
+        btn.prop('disabled', true);
+        mQuery.ajax({
+            url: mauticBaseUrl + 's/evolution/templates/sync',
+            type: 'POST',
+            success: function (response) {
+                if (response.success) {
+                    Mautic.reloadPage(window.location.href);
+                } else {
+                    alert(response.error || 'Sync failed');
+                }
+            },
+            complete: function () {
+                btn.prop('disabled', false);
+            }
+        });
+    });
 });
 
 // Export for global access

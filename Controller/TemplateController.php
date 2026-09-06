@@ -7,6 +7,7 @@ namespace MauticPlugin\MauticEvolutionBundle\Controller;
 use Doctrine\Persistence\ManagerRegistry;
 use MauticPlugin\MauticEvolutionBundle\Entity\EvolutionTemplate;
 use MauticPlugin\MauticEvolutionBundle\Model\TemplateModel;
+use MauticPlugin\MauticEvolutionBundle\Service\TemplateSyncService;
 use Mautic\CoreBundle\Controller\FormController;
 use Mautic\CoreBundle\Factory\ModelFactory;
 use Mautic\CoreBundle\Helper\CoreParametersHelper;
@@ -150,5 +151,16 @@ class TemplateController extends FormController
         return $this->render('@MauticEvolution/Template/preview.html.twig', [
             'template' => $entity,
         ]);
+    }
+
+    public function syncAction(TemplateSyncService $syncService): JsonResponse
+    {
+        if (!$this->security->isGranted('evolution:templates:create')) {
+            return new JsonResponse(['success' => false, 'message' => 'Access denied'], Response::HTTP_FORBIDDEN);
+        }
+
+        $result = $syncService->syncFromApi();
+
+        return new JsonResponse($result, !empty($result['success']) ? Response::HTTP_OK : Response::HTTP_BAD_REQUEST);
     }
 }

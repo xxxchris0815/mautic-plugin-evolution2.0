@@ -53,8 +53,28 @@ class EvolutionTemplateRepository extends CommonRepository
             ->getResult();
     }
 
+    public function templateNameExists(string $name, ?int $excludeId = null): bool
+    {
+        return $this->nameExists($name, $excludeId);
+    }
+
+    public function findByNameAndLanguage(string $name, ?string $language = null): ?EvolutionTemplate
+    {
+        $qb = $this->createQueryBuilder('t')
+            ->where('t.name = :name')
+            ->setParameter('name', $name)
+            ->setMaxResults(1);
+
+        if ($language) {
+            $qb->andWhere('t.language = :language')
+                ->setParameter('language', $language);
+        }
+
+        return $qb->getQuery()->getOneOrNullResult();
+    }
+
     /**
-     * Busca templates para select options
+     * @return array<string, int>
      */
     public function getTemplateChoices(): array
     {
@@ -62,10 +82,22 @@ class EvolutionTemplateRepository extends CommonRepository
         $choices = [];
 
         foreach ($templates as $template) {
-            $choices[$template->getName()] = $template->getId();
+            $label = $template->getName();
+            if ($template->isEvolutionTemplate()) {
+                $label .= sprintf(' [%s / %s]', $template->getLanguage() ?: '-', $template->getStatus() ?: 'LOCAL');
+            }
+            $choices[$label] = $template->getId();
         }
 
         return $choices;
+    }
+
+    public function countEntities(): int
+    {
+        return (int) $this->createQueryBuilder('t')
+            ->select('COUNT(t.id)')
+            ->getQuery()
+            ->getSingleScalarResult();
     }
 
     /**

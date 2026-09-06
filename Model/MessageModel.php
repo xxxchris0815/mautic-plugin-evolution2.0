@@ -9,7 +9,9 @@ use Mautic\CoreBundle\Model\FormModel;
 use Mautic\CoreBundle\Security\Permissions\CorePermissions;
 use Mautic\CoreBundle\Translation\Translator;
 use Mautic\LeadBundle\Entity\Lead;
-use Mautic\LeadBundle\Helper\TokenHelper;
+use MauticPlugin\MauticEvolutionBundle\Helper\PhoneNumberHelper;
+use MauticPlugin\MauticEvolutionBundle\Helper\TemplatePayloadBuilder;
+use MauticPlugin\MauticEvolutionBundle\Helper\TokenHelper;
 use Mautic\LeadBundle\Model\LeadModel;
 use MauticPlugin\MauticEvolutionBundle\Entity\EvolutionMessage;
 use MauticPlugin\MauticEvolutionBundle\Entity\EvolutionMessageRepository;
@@ -57,68 +59,127 @@ class MessageModel extends FormModel
 
     /**
      * Send message via Evolution API
+     *
+     * @param array<string, mixed> $headers
+     * @param array<string, mixed> $metadata
+     * @param array{campaignId?: ?int, campaignEventId?: ?int, campaignEventLogId?: ?int} $campaignContext
      */
-    public function sendMessage(Lead $lead, string $message, ?string $templateName = null, ?string $groupAlias = null, string $phoneField = 'mobile', array $headers = [], array $metadata = []): ?EvolutionMessage
+    public function sendMessage(Lead $lead, string $message, ?string $templateName = null, ?string $groupAlias = null, string $phoneField = 'mobile', array $headers = [], array $metadata = [], array $campaignContext = []): ?EvolutionMessage
     {
         $phoneNumber = $this->getLeadPhoneNumber($lead, $phoneField);
-        
+
         if (empty($phoneNumber)) {
             $this->logger->warning('Cannot send Evolution message: Lead has no phone number', ['leadId' => $lead->getId()]);
             return null;
         }
 
         try {
-            // Interpolate tokens in message content using lead data
-            $leadData = $lead->getProfileFields();
-            
-            // First, handle simple tokens like {firstname} by converting them to {contactfield=firstname}
-            $message = preg_replace('/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/', '{contactfield=$1}', $message);
-            
-            // Then use TokenHelper to replace the tokens
-            $interpolatedMessage = TokenHelper::findLeadTokens($message, $leadData, true);
+            $interpolatedMessage = TokenHelper::replaceForLead($message, $lead);
+            $parsedHeaders = TokenHelper::replaceMap($headers, $lead, true);
+            $parsedMetadata = TokenHelper::replaceMap($metadata, $lead, false);
 
-            // Parse headers and metadata with lead tokens
-            $parsedHeaders = $this->interpolateTokensInMap($headers, $lead);
-            $parsedMetadata = $this->interpolateTokensInMap($metadata, $lead, false);
+            $evolutionMessage = $this->createPendingMessage($lead, $phoneNumber, $interpolatedMessage, $templateName, 'text', $parsedMetadata, $campaignContext);
 
-            // Create message entity
-            $evolutionMessage = new EvolutionMessage();
-            $evolutionMessage->setLead($lead);
-            $evolutionMessage->setPhoneNumber($phoneNumber);
-            $evolutionMessage->setMessageContent($interpolatedMessage);
-            $evolutionMessage->setTemplateName($templateName);
-            $evolutionMessage->setStatus('pending');
-            if (!empty($parsedMetadata)) {
-                $evolutionMessage->setMetadata($parsedMetadata);
-            }
-
-            // Send via API
             $response = !empty($groupAlias)
                 ? $this->evolutionApiService->sendTextWithGroupBalancing($groupAlias, $phoneNumber, $interpolatedMessage, [], $lead, null, $parsedHeaders, $parsedMetadata)
-                : $this->evolutionApiService->sendTextWithBalancing($phoneNumber, $interpolatedMessage, $lead, null, $parsedHeaders, $parsedMetadata);
+                : $this->evolutionApiService->sendTextMessage($phoneNumber, $interpolatedMessage, $lead, null, $parsedHeaders, $parsedMetadata);
 
-            $messageId = $response['data']['key']['id'] ?? null;
-
-            if ($messageId) {
-                $evolutionMessage->setMessageId($messageId);
-                $evolutionMessage->setStatus('sent');
-                $evolutionMessage->setSentAt(new \DateTime());
-            } else {
-                $evolutionMessage->setStatus('failed');
-                $evolutionMessage->setErrorMessage($response['error'] ?? 'Failed to send message via Evolution API');
-            }
-
+            $this->applySendResponse($evolutionMessage, $response);
             $this->saveEntity($evolutionMessage);
-            
+
             return $evolutionMessage;
         } catch (\Exception $e) {
             $this->logger->error('Error sending Evolution message', [
                 'leadId' => $lead->getId(),
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
-            
+
             return null;
         }
+    }
+
+    /**
+     * @param list<array<string, mixed>> $components
+     * @param array<string, mixed> $headers
+     * @param array<string, mixed> $metadata
+     * @param array{campaignId?: ?int, campaignEventId?: ?int, campaignEventLogId?: ?int} $campaignContext
+     */
+    public function sendOfficialTemplate(
+        Lead $lead,
+        \MauticPlugin\MauticEvolutionBundle\Entity\EvolutionTemplate $template,
+        array $components,
+        string $phoneField = 'mobile',
+        ?string $groupAlias = null,
+        array $headers = [],
+        array $metadata = [],
+        array $campaignContext = []
+    ): ?EvolutionMessage {
+        $phoneNumber = $this->getLeadPhoneNumber($lead, $phoneField);
+        if (empty($phoneNumber)) {
+            return null;
+        }
+
+        $content = TemplatePayloadBuilder::extractBodyText($template->getComponents() ?? []) ?: (string) $template->getContent();
+        $parsedHeaders = TokenHelper::replaceMap($headers, $lead, true);
+        $parsedMetadata = TokenHelper::replaceMap($metadata, $lead, false);
+
+        $evolutionMessage = $this->createPendingMessage(
+            $lead,
+            $phoneNumber,
+            $content,
+            $template->getName(),
+            'template',
+            $parsedMetadata,
+            $campaignContext
+        );
+
+        $response = $this->evolutionApiService->sendTemplate(
+            $phoneNumber,
+            (string) $template->getName(),
+            (string) ($template->getLanguage() ?: 'en'),
+            $components,
+            $lead,
+            null,
+            $parsedHeaders,
+            $parsedMetadata
+        );
+
+        $this->applySendResponse($evolutionMessage, $response);
+        $this->saveEntity($evolutionMessage);
+
+        return $evolutionMessage;
+    }
+
+    /**
+     * @param array{campaignId?: ?int, campaignEventId?: ?int, campaignEventLogId?: ?int} $campaignContext
+     */
+    public function sendMedia(
+        Lead $lead,
+        string $mediaUrl,
+        string $caption = '',
+        string $mediaType = 'image',
+        string $phoneField = 'mobile',
+        array $campaignContext = []
+    ): ?EvolutionMessage {
+        $phoneNumber = $this->getLeadPhoneNumber($lead, $phoneField);
+        if (empty($phoneNumber)) {
+            return null;
+        }
+
+        $evolutionMessage = $this->createPendingMessage($lead, $phoneNumber, $caption, null, $mediaType, ['media_url' => $mediaUrl], $campaignContext);
+        $response = $this->evolutionApiService->sendMediaMessage($phoneNumber, $mediaUrl, $caption, $lead, null, $mediaType);
+        $this->applySendResponse($evolutionMessage, $response);
+        $this->saveEntity($evolutionMessage);
+
+        return $evolutionMessage;
+    }
+
+    /**
+     * @return array{sent: int, delivered: int, read: int, failed: int, pending: int}
+     */
+    public function getCampaignEventStats(int $campaignEventId): array
+    {
+        return $this->getRepository()->getStatsSummaryForCampaignEvent($campaignEventId);
     }
 
     /**
@@ -142,7 +203,7 @@ class MessageModel extends FormModel
             $v = is_string($value) ? $value : (string) $value;
             // Convert {field} -> {contactfield=field}
             $v = preg_replace('/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/', '{contactfield=$1}', $v);
-            $v = TokenHelper::findLeadTokens($v, $leadData, true);
+            $v = TokenHelper::replace($v, $leadData);
             // Cast types for metadata; keep strings for headers
             if ($headersMode) {
                 $out[$k] = $v;
@@ -247,23 +308,80 @@ class MessageModel extends FormModel
     }
 
     /**
+     * @param array<string, mixed> $metadata
+     * @param array{campaignId?: ?int, campaignEventId?: ?int, campaignEventLogId?: ?int} $campaignContext
+     */
+    private function createPendingMessage(
+        Lead $lead,
+        string $phoneNumber,
+        string $content,
+        ?string $templateName,
+        string $messageType,
+        array $metadata,
+        array $campaignContext
+    ): EvolutionMessage {
+        $evolutionMessage = new EvolutionMessage();
+        $evolutionMessage->setLead($lead);
+        $evolutionMessage->setPhoneNumber($phoneNumber);
+        $evolutionMessage->setMessageContent($content);
+        $evolutionMessage->setTemplateName($templateName);
+        $evolutionMessage->setStatus('pending');
+        $evolutionMessage->setMessageType($messageType);
+        $evolutionMessage->setInstance($this->evolutionApiService->getInstance());
+        if ($metadata !== []) {
+            $evolutionMessage->setMetadata($metadata);
+        }
+        if (!empty($campaignContext['campaignId'])) {
+            $evolutionMessage->setCampaignId((int) $campaignContext['campaignId']);
+        }
+        if (!empty($campaignContext['campaignEventId'])) {
+            $evolutionMessage->setCampaignEventId((int) $campaignContext['campaignEventId']);
+        }
+        if (!empty($campaignContext['campaignEventLogId'])) {
+            $evolutionMessage->setCampaignEventLogId((int) $campaignContext['campaignEventLogId']);
+        }
+
+        return $evolutionMessage;
+    }
+
+    /**
+     * @param array<string, mixed> $response
+     */
+    private function applySendResponse(EvolutionMessage $evolutionMessage, array $response): void
+    {
+        $messageId = $this->evolutionApiService->extractResponseMessageId($response['data'] ?? null);
+        if (!$messageId && !empty($response['success'])) {
+            $messageId = $this->evolutionApiService->extractResponseMessageId($response);
+        }
+
+        if (!empty($response['success']) || $messageId) {
+            $evolutionMessage->setMessageId($messageId);
+            $evolutionMessage->setStatus('sent');
+            $evolutionMessage->setSentAt(new \DateTime());
+            $evolutionMessage->setSentReceipt(is_array($response['data'] ?? null) ? $response['data'] : $response);
+        } else {
+            $evolutionMessage->setStatus('failed');
+            $evolutionMessage->setErrorMessage((string) ($response['error'] ?? 'Failed to send message via Evolution API'));
+        }
+    }
+
+    /**
      * Get the contact's phone number honoring selected field
      */
     private function getLeadPhoneNumber(Lead $lead, string $phoneField = 'mobile'): ?string
     {
         $fieldsOrder = array_unique(array_filter([$phoneField, 'mobile', 'phone', 'whatsapp']));
+        $country = $this->evolutionApiService->getDefaultCountryCode();
         foreach ($fieldsOrder as $field) {
             $phone = method_exists($lead, 'getFieldValue') ? $lead->getFieldValue($field) : null;
             if (!empty($phone)) {
-                $clean = preg_replace('/[^0-9]/', '', (string) $phone);
-                if (strlen($clean) >= 10 && substr($clean, 0, 2) !== '55') {
-                    $clean = '55' . $clean;
-                }
-                return $clean;
+                $clean = PhoneNumberHelper::normalize((string) $phone, $country);
+                return $clean !== '' ? $clean : null;
             }
         }
-        // fallback to lead helper
-        $fallback = $lead->getLeadPhoneNumber();
-        return $fallback ? preg_replace('/[^0-9]/', '', $fallback) : null;
+
+        $fallback = method_exists($lead, 'getLeadPhoneNumber') ? $lead->getLeadPhoneNumber() : null;
+
+        return $fallback ? PhoneNumberHelper::normalize((string) $fallback, $country) : null;
     }
 }

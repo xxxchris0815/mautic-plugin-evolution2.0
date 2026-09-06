@@ -4,67 +4,48 @@ declare(strict_types=1);
 
 namespace MauticPlugin\MauticEvolutionBundle\Service;
 
-use MauticPlugin\MauticEvolutionBundle\Entity\EvolutionMessage;
-use MauticPlugin\MauticEvolutionBundle\Entity\EvolutionMessageRepository;
-use Mautic\LeadBundle\Model\LeadModel;
-use Mautic\LeadBundle\Model\NoteModel;
+use Doctrine\ORM\EntityManagerInterface;
 use Mautic\LeadBundle\Entity\Lead;
 use Mautic\LeadBundle\Entity\LeadNote;
-use Symfony\Component\EventDispatcher\EventDispatcherInterface;
+use Mautic\LeadBundle\Model\LeadModel;
+use Mautic\LeadBundle\Model\NoteModel;
+use MauticPlugin\MauticEvolutionBundle\Entity\EvolutionMessage;
+use MauticPlugin\MauticEvolutionBundle\Entity\EvolutionMessageRepository;
+use MauticPlugin\MauticEvolutionBundle\Helper\PhoneNumberHelper;
+use MauticPlugin\MauticEvolutionBundle\Helper\WebhookStatusMapper;
 use Psr\Log\LoggerInterface;
-use Doctrine\ORM\EntityManagerInterface;
+use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 
-/**
- * Class WebhookService
- * 
- * Serviço para processar webhooks recebidos da Evolution API
- */
 class WebhookService
 {
-    private LeadModel $leadModel;
-    private NoteModel $noteModel;
-    private EventDispatcherInterface $eventDispatcher;
-    private LoggerInterface $logger;
-    private EntityManagerInterface $entityManager;
-
     public function __construct(
-        LeadModel $leadModel,
-        NoteModel $noteModel,
-        EventDispatcherInterface $eventDispatcher,
-        LoggerInterface $logger,
-        EntityManagerInterface $entityManager
+        private LeadModel $leadModel,
+        private NoteModel $noteModel,
+        private EventDispatcherInterface $eventDispatcher,
+        private LoggerInterface $logger,
+        private EntityManagerInterface $entityManager,
+        private CampaignTrackingService $campaignTrackingService,
+        private EvolutionApiService $evolutionApiService
     ) {
-        $this->leadModel = $leadModel;
-        $this->noteModel = $noteModel;
-        $this->eventDispatcher = $eventDispatcher;
-        $this->logger = $logger;
-        $this->entityManager = $entityManager;
     }
 
     /**
-     * Processa webhook recebido
+     * @param array<string, mixed> $payload
+     *
+     * @return array{success: bool, data?: array<string, mixed>, error?: string}
      */
     public function processWebhook(array $payload): array
     {
         try {
-            $this->logger->info('Processando webhook Evolution API', ['payload' => $payload]);
+            $event = strtolower((string) ($payload['event'] ?? ''));
+            $this->logger->info('Processando webhook Evolution API', ['event' => $event]);
 
-            $event = $payload['event'] ?? '';
-            
-            switch ($event) {
-                case 'messages.upsert':
-                    return $this->processIncomingMessage($payload);
-                    
-                case 'messages.update':
-                    return $this->processMessageUpdate($payload);
-                    
-                case 'connection.update':
-                    return $this->processConnectionUpdate($payload);
-                    
-                default:
-                    $this->logger->info('Evento de webhook não processado', ['event' => $event]);
-                    return ['success' => true, 'data' => ['message' => 'Evento não processado']];
-            }
+            return match ($event) {
+                'messages.upsert', 'messages_upsert', 'messages.set', 'messages_set' => $this->processIncomingMessage($payload),
+                'messages.update', 'messages_update', 'send.message', 'send_message' => $this->processMessageUpdate($payload),
+                'connection.update', 'connection_update' => $this->processConnectionUpdate($payload),
+                default => ['success' => true, 'data' => ['message' => 'Evento não processado', 'event' => $event]],
+            };
         } catch (\Exception $e) {
             $this->logger->error('Erro ao processar webhook', [
                 'error' => $e->getMessage(),
@@ -76,21 +57,20 @@ class WebhookService
     }
 
     /**
-     * Processa mensagem recebida
+     * @param array<string, mixed> $payload
+     *
+     * @return array{success: bool, error?: string, data?: array<string, mixed>}
      */
     public function processIncomingMessage(array $payload): array
     {
         $data = $payload['data'] ?? [];
-        
         if (empty($data)) {
             return ['success' => false, 'error' => 'Dados da mensagem não encontrados'];
         }
 
-        // Se data é um array associativo (uma única mensagem), processa diretamente
         if (isset($data['key'])) {
             $this->processMessage($data);
         } else {
-            // Se data é um array de mensagens, processa cada uma
             foreach ($data as $messageData) {
                 if (is_array($messageData)) {
                     $this->processMessage($messageData);
@@ -102,26 +82,21 @@ class WebhookService
     }
 
     /**
-     * Processa atualização de status de mensagem
+     * @param array<string, mixed> $payload
+     *
+     * @return array{success: bool, error?: string, data?: array<string, mixed>}
      */
     public function processMessageUpdate(array $payload): array
     {
         $data = $payload['data'] ?? [];
-        
         if (empty($data)) {
             return ['success' => false, 'error' => 'Dados da atualização não encontrados'];
         }
 
-        // Garantir que $data seja um array
         if (!is_array($data)) {
-            $this->logger->warning('Dados de atualização não são um array', [
-                'data_type' => gettype($data),
-                'data_value' => $data
-            ]);
             return ['success' => false, 'error' => 'Formato de dados inválido'];
         }
 
-        // Se $data não é um array multidimensional, transformar em um
         if (!isset($data[0]) || !is_array($data[0])) {
             $data = [$data];
         }
@@ -129,11 +104,6 @@ class WebhookService
         foreach ($data as $updateData) {
             if (is_array($updateData)) {
                 $this->updateMessageStatus($updateData);
-            } else {
-                $this->logger->warning('Item de atualização não é um array', [
-                    'item_type' => gettype($updateData),
-                    'item_value' => $updateData
-                ]);
             }
         }
 
@@ -141,21 +111,17 @@ class WebhookService
     }
 
     /**
-     * Processa atualização de conexão
+     * @param array<string, mixed> $payload
+     *
+     * @return array{success: bool, error?: string, data?: array<string, mixed>}
      */
     public function processConnectionUpdate(array $payload): array
     {
         $data = $payload['data'] ?? [];
-        
-        if (empty($data)) {
-            return ['success' => false, 'error' => 'Dados da conexão não encontrados'];
-        }
+        $state = is_array($data) ? ($data['state'] ?? 'unknown') : 'unknown';
 
-        $state = $data['state'] ?? 'unknown';
-        $instance = $payload['instance'] ?? 'unknown';
-        
         $this->logger->info('Status de conexão atualizado', [
-            'instance' => $instance,
+            'instance' => $payload['instance'] ?? 'unknown',
             'state' => $state,
         ]);
 
@@ -163,275 +129,179 @@ class WebhookService
     }
 
     /**
-     * Processa uma mensagem individual
+     * @param array<string, mixed> $messageData
      */
     private function processMessage(array $messageData): void
     {
         $key = $messageData['key'] ?? [];
-        $message = $messageData['message'] ?? [];
-        
-        // Verifica se é mensagem recebida (não enviada por nós)
         if (($key['fromMe'] ?? false) === true) {
+            $this->updateMessageStatus($messageData);
+
             return;
         }
 
-        $phoneNumber = $this->extractPhoneNumber($key['remoteJid'] ?? '');
-        $messageContent = $this->extractMessageContent($message);
-        
-        if (empty($phoneNumber) || empty($messageContent)) {
+        $phoneNumber = PhoneNumberHelper::fromJid((string) ($key['remoteJid'] ?? ''));
+        $messageContent = $this->extractMessageContent($messageData['message'] ?? []);
+        if ($phoneNumber === '' || $messageContent === '') {
             return;
         }
 
-        // Busca ou cria lead baseado no número de telefone
         $lead = $this->findOrCreateLead($phoneNumber);
-        
-        if ($lead) {
-            $this->addLeadNote($lead, $messageContent, $messageData);
-            
-            // Dispara evento para possível automação
-            // $this->eventDispatcher->dispatch(new IncomingMessageEvent($lead, $messageContent));
+        if (!$lead) {
+            return;
+        }
+
+        $this->addLeadNote($lead, $messageContent, $messageData);
+
+        $outgoing = $this->findLatestOutgoingMessage($lead, $phoneNumber);
+        if ($outgoing) {
+            $this->campaignTrackingService->triggerReply($outgoing, $messageContent);
         }
     }
 
     /**
-     * Atualiza status de mensagem enviada
+     * @param array<string, mixed> $updateData
      */
     private function updateMessageStatus(array $updateData): void
     {
-        try {
-            $this->logger->info('Processando atualização de status de mensagem', [
-                'updateData' => $updateData
-            ]);
-
-            // Extrai o keyId que corresponde ao message_id
-            $messageId = $updateData['keyId'] ?? null;
-            $status = $updateData['status'] ?? null;
-
-            if (empty($messageId)) {
-                $this->logger->warning('KeyId não encontrado nos dados de atualização', [
-                    'updateData' => $updateData
-                ]);
-                return;
-            }
-
-            if (empty($status)) {
-                $this->logger->warning('Status não encontrado nos dados de atualização', [
-                    'updateData' => $updateData
-                ]);
-                return;
-            }
-
-            // Busca a mensagem pelo message_id
-            /** @var EvolutionMessageRepository $repository */
-            $repository = $this->entityManager->getRepository(EvolutionMessage::class);
-            $evolutionMessage = $repository->findByEvolutionMessageId($messageId);
-
-            if (!$evolutionMessage) {
-                $this->logger->warning('Mensagem não encontrada na base de dados', [
-                    'message_id' => $messageId,
-                    'status' => $status
-                ]);
-                return;
-            }
-
-            $updated = false;
-            $currentDateTime = new \DateTime();
-
-            // Atualiza campos baseado no status
-            switch ($status) {
-                case 'DELIVERY_ACK':
-                    if (!$evolutionMessage->getDeliveredAt()) {
-                        $evolutionMessage->setStatus('delivered');
-                        $evolutionMessage->setDeliveredAt($currentDateTime);
-                        $evolutionMessage->setDeliveredReceipt($updateData);
-                        $updated = true;
-                        
-                        $this->logger->info('Mensagem marcada como entregue', [
-                            'message_id' => $messageId,
-                            'delivered_at' => $currentDateTime->format('Y-m-d H:i:s')
-                        ]);
-                    }
-                    break;
-
-                case 'READ':
-                    if (!$evolutionMessage->getReadAt()) {
-                        $evolutionMessage->setStatus('read');
-                        $evolutionMessage->setReadAt($currentDateTime);
-                        $evolutionMessage->setReadReceipt($updateData);
-                        $updated = true;
-                        
-                        $this->logger->info('Mensagem marcada como lida', [
-                            'message_id' => $messageId,
-                            'read_at' => $currentDateTime->format('Y-m-d H:i:s')
-                        ]);
-                    }
-                    break;
-
-                default:
-                    $this->logger->info('Status não processado', [
-                        'message_id' => $messageId,
-                        'status' => $status
-                    ]);
-                    break;
-            }
-
-            // Salva as alterações se houve atualização
-            if ($updated) {
-                $this->entityManager->persist($evolutionMessage);
-                $this->entityManager->flush();
-                
-                $this->logger->info('Status da mensagem atualizado com sucesso', [
-                    'message_id' => $messageId,
-                    'status' => $status,
-                    'delivered_at' => $evolutionMessage->getDeliveredAt()?->format('Y-m-d H:i:s'),
-                    'read_at' => $evolutionMessage->getReadAt()?->format('Y-m-d H:i:s')
-                ]);
-            }
-
-        } catch (\Exception $e) {
-            $this->logger->error('Erro ao atualizar status da mensagem', [
-                'error' => $e->getMessage(),
-                'updateData' => $updateData,
-                'trace' => $e->getTraceAsString()
-            ]);
+        $messageId = WebhookStatusMapper::extractMessageId($updateData);
+        $rawStatus = WebhookStatusMapper::extractRawStatus($updateData);
+        if (!$messageId || !$rawStatus) {
+            return;
         }
+
+        $status = WebhookStatusMapper::map($rawStatus);
+        if ($status === null) {
+            $this->logger->info('Status não processado', [
+                'message_id' => $messageId,
+                'status' => $rawStatus,
+            ]);
+
+            return;
+        }
+
+        /** @var EvolutionMessageRepository $repository */
+        $repository = $this->entityManager->getRepository(EvolutionMessage::class);
+        $evolutionMessage = $repository->findByEvolutionMessageId($messageId);
+        if (!$evolutionMessage) {
+            $this->logger->warning('Mensagem não encontrada na base de dados', [
+                'message_id' => $messageId,
+                'status' => $status,
+            ]);
+
+            return;
+        }
+
+        $this->campaignTrackingService->applyStatus($evolutionMessage, $status, $updateData);
     }
 
-    /**
-     * Extrai número de telefone do JID
-     */
-    private function extractPhoneNumber(string $jid): string
+    private function findLatestOutgoingMessage(Lead $lead, string $phoneNumber): ?EvolutionMessage
     {
-        // Remove sufixo @s.whatsapp.net ou @g.us
-        $phone = preg_replace('/@.*$/', '', $jid);
-        
-        // Remove caracteres não numéricos
-        return preg_replace('/[^0-9]/', '', $phone);
+        return $this->entityManager->getRepository(EvolutionMessage::class)
+            ->createQueryBuilder('m')
+            ->where('m.lead = :lead')
+            ->andWhere('m.campaignEventId IS NOT NULL')
+            ->setParameter('lead', $lead->getId())
+            ->orderBy('m.id', 'DESC')
+            ->setMaxResults(1)
+            ->getQuery()
+            ->getOneOrNullResult();
     }
 
     /**
-     * Extrai conteúdo da mensagem
+     * @param array<string, mixed> $message
      */
     private function extractMessageContent(array $message): string
     {
-        // Mensagem de texto
         if (isset($message['conversation'])) {
-            return $message['conversation'];
+            return (string) $message['conversation'];
         }
-        
-        // Mensagem de texto estendida
         if (isset($message['extendedTextMessage']['text'])) {
-            return $message['extendedTextMessage']['text'];
+            return (string) $message['extendedTextMessage']['text'];
         }
-        
-        // Mensagem com mídia
         if (isset($message['imageMessage']['caption'])) {
-            return $message['imageMessage']['caption'];
+            return (string) $message['imageMessage']['caption'];
         }
-        
         if (isset($message['videoMessage']['caption'])) {
-            return $message['videoMessage']['caption'];
+            return (string) $message['videoMessage']['caption'];
         }
-        
         if (isset($message['documentMessage']['caption'])) {
-            return $message['documentMessage']['caption'];
+            return (string) $message['documentMessage']['caption'];
         }
-        
-        // Outros tipos de mensagem
+        if (isset($message['templateMessage'])) {
+            return '[Template]';
+        }
+        if (isset($message['buttonsResponseMessage']['selectedDisplayText'])) {
+            return (string) $message['buttonsResponseMessage']['selectedDisplayText'];
+        }
+        if (isset($message['listResponseMessage']['title'])) {
+            return (string) $message['listResponseMessage']['title'];
+        }
         if (isset($message['audioMessage'])) {
             return '[Áudio]';
         }
-        
         if (isset($message['imageMessage'])) {
             return '[Imagem]';
         }
-        
         if (isset($message['videoMessage'])) {
             return '[Vídeo]';
         }
-        
         if (isset($message['documentMessage'])) {
             return '[Documento]';
         }
-        
         if (isset($message['stickerMessage'])) {
             return '[Sticker]';
         }
-        
         if (isset($message['locationMessage'])) {
             return '[Localização]';
         }
-        
-        return '[Mensagem não suportada]';
+
+        return '';
     }
 
-    /**
-     * Busca ou cria lead baseado no número de telefone
-     */
     private function findOrCreateLead(string $phoneNumber): ?Lead
     {
-        // Busca lead existente pelos campos de telefone
-        $phoneFields = ['mobile', 'phone'];
-        
-        foreach ($phoneFields as $field) {
-            $leads = $this->leadModel->getRepository()->findBy([$field => $phoneNumber]);
-            if (!empty($leads)) {
-                return $leads[0];
+        $country = $this->evolutionApiService->getDefaultCountryCode();
+        $normalized = PhoneNumberHelper::normalize($phoneNumber, $country);
+        $candidates = array_unique(array_filter([$phoneNumber, $normalized]));
+
+        foreach (['mobile', 'phone', 'whatsapp'] as $field) {
+            foreach ($candidates as $candidate) {
+                $leads = $this->leadModel->getRepository()->findBy([$field => $candidate]);
+                if (!empty($leads)) {
+                    return $leads[0];
+                }
             }
         }
 
-        // Cria novo lead se não encontrou
         try {
             $lead = new Lead();
-            $lead->addUpdatedField('mobile', $phoneNumber);
-            
+            $lead->addUpdatedField('mobile', $normalized ?: $phoneNumber);
             $this->leadModel->saveEntity($lead);
-            
-            $this->logger->info('Novo lead criado via WhatsApp', [
-                'lead_id' => $lead->getId(),
-                'phone' => $phoneNumber,
-            ]);
-            
+
             return $lead;
         } catch (\Exception $e) {
             $this->logger->error('Erro ao criar lead via WhatsApp', [
                 'phone' => $phoneNumber,
                 'error' => $e->getMessage(),
             ]);
-            
+
             return null;
         }
     }
 
     /**
-     * Adiciona nota ao lead com a mensagem recebida
+     * @param array<string, mixed> $messageData
      */
     private function addLeadNote(Lead $lead, string $messageContent, array $messageData): void
     {
         try {
-            // Criar uma nova nota
             $note = new LeadNote();
-            
-            // Configurar o conteúdo da nota
-            $noteText = sprintf(
-                "Mensagem WhatsApp recebida:\n%s\n\nRecebida em: %s",
-                $messageContent,
-                date('d/m/Y H:i:s')
-            );
-            
-            $note->setText($noteText);
-            $note->setType('whatsapp');
+            $note->setText(sprintf("WhatsApp reply:\n%s\n\n%s", $messageContent, date('Y-m-d H:i:s')));
+            $note->setType('general');
             $note->setLead($lead);
             $note->setDateTime(new \DateTime());
-            
-            // Salvar a nota usando o NoteModel
             $this->noteModel->saveEntity($note);
-            
-            $this->logger->info('Nota adicionada ao lead com sucesso', [
-                'lead_id' => $lead->getId(),
-                'note_id' => $note->getId(),
-                'message' => $messageContent,
-            ]);
         } catch (\Exception $e) {
             $this->logger->error('Erro ao adicionar nota ao lead', [
                 'lead_id' => $lead->getId(),
@@ -441,13 +311,10 @@ class WebhookService
     }
 
     /**
-     * Valida se o webhook é válido
+     * @param array<string, mixed> $payload
      */
     public function validateWebhook(array $payload): bool
     {
-        // Implementar validação de segurança se necessário
-        // Por exemplo: verificar assinatura, IP de origem, etc.
-        
-        return isset($payload['event']) && isset($payload['instance']);
+        return isset($payload['event']);
     }
 }

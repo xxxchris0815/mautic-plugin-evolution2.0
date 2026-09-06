@@ -55,8 +55,44 @@ class EvolutionMessageRepository extends CommonRepository
         return $this->createQueryBuilder('m')
             ->where('m.messageId = :evolutionMessageId')
             ->setParameter('evolutionMessageId', $evolutionMessageId)
+            ->orderBy('m.id', 'DESC')
+            ->setMaxResults(1)
             ->getQuery()
             ->getOneOrNullResult();
+    }
+
+    public function findByMessageId(string $messageId): ?EvolutionMessage
+    {
+        return $this->findByEvolutionMessageId($messageId);
+    }
+
+    /**
+     * @return array{sent: int, delivered: int, read: int, failed: int, pending: int}
+     */
+    public function getStatsSummaryForCampaignEvent(int $campaignEventId): array
+    {
+        $qb = $this->createQueryBuilder('m')
+            ->select('m.status, COUNT(m.id) as cnt')
+            ->where('m.campaignEventId = :eventId')
+            ->setParameter('eventId', $campaignEventId)
+            ->groupBy('m.status');
+
+        $stats = [
+            'pending' => 0,
+            'sent' => 0,
+            'delivered' => 0,
+            'read' => 0,
+            'failed' => 0,
+        ];
+
+        foreach ($qb->getQuery()->getArrayResult() as $row) {
+            $status = (string) ($row['status'] ?? '');
+            if (isset($stats[$status])) {
+                $stats[$status] = (int) $row['cnt'];
+            }
+        }
+
+        return $stats;
     }
 
     /**

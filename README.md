@@ -22,27 +22,26 @@ Plugin oficial para integração entre Mautic e Evolution API, permitindo o envi
 - **Última Atualização**: 2024
 
 ### Compatibilidade
-- **Mautic**: >= 6.0
-- **PHP**: >= 8.1
-- **Evolution API**: >= 1.5.0
-- **Symfony**: >= 6.0
+- **Mautic**: 6.0 – 7.2 (Kampagnen-Actions nutzen `batchEventName` / `PendingEvent`, wie in Mautic 7.2 erforderlich)
+- **PHP**: >= 8.2
+- **Evolution API**: >= 2.0 (v1-Webhook-Payloads werden weiter akzeptiert)
+- **Symfony**: 6 / 7
 
 ### Funcionalidades Implementadas ✅
 
 - ✅ **Envio de Mensagens de Texto**: Mensagens simples via WhatsApp
-- ✅ **Envio de Mídia**: Imagens, documentos e outros arquivos
-- ✅ **Templates Dinâmicos**: Sistema completo de templates com variáveis
-- ✅ **Integração com Campanhas**: Actions nativas no Campaign Builder
-- ✅ **Webhooks**: Recebimento de status de entrega e leitura
-- ✅ **Sistema de Logs**: Auditoria completa de mensagens enviadas
+- ✅ **Envio de Mídia**: Imagens, documentos, áudio e vídeo
+- ✅ **Templates WhatsApp Business**: Listar, sincronizar, criar e enviar templates oficiais da Evolution/Meta (`/template/find`, `/template/create`, `/message/sendTemplate`)
+- ✅ **Templates locais**: CRUD no Mautic para texto com variáveis de contato
+- ✅ **Integração com Campanhas**: Actions nativas no Campaign Builder (`PendingEvent` / Mautic 7.2)
+- ✅ **Feedback de campanha**: Entregue, lido e resposta voltam para análise da campanha, decisões e reports
+- ✅ **Webhooks**: `messages.update`, `messages.upsert`, `send.message`, `connection.update`
+- ✅ **Sistema de Logs**: Auditoria de mensagens enviadas
 - ✅ **Interface Administrativa**: Gerenciamento via painel do Mautic
-- ✅ **Processamento de Status**: Atualização automática de status de mensagens
 
 ### Funcionalidades em Desenvolvimento 🚧
 
-- 🚧 **Mensagens de Áudio**: Envio de mensagens de voz
-- 🚧 **Botões Interativos**: Suporte a botões e menus
-- 🚧 **Relatórios Avançados**: Dashboard com métricas detalhadas
+- 🚧 **Dashboard dedicado**: Widgets extras no Mautic dashboard (além de Reports e Campaign Analysis)
 
 ## 🔧 Requisitos do Sistema
 

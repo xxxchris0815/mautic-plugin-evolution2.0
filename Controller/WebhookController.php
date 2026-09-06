@@ -76,13 +76,17 @@ class WebhookController extends CommonController
             }
 
             // Valida estrutura básica do payload
-            if (!isset($payload['event']) || !isset($payload['data'])) {
+            if (!isset($payload['event'])) {
                 $this->logger->warning('Webhook com estrutura inválida', ['payload' => $payload]);
 
                 return new JsonResponse([
                     'status' => 'error',
                     'message' => 'Estrutura de dados inválida'
                 ], Response::HTTP_BAD_REQUEST);
+            }
+
+            if (!isset($payload['data'])) {
+                $payload['data'] = [];
             }
 
             // Processa o webhook

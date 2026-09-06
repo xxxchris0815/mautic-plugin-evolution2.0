@@ -1,0 +1,121 @@
+{% extends '@MauticCore/Default/content.html.twig' %}
+
+{% block mauticContent %}evolutionMetaTemplate{% endblock %}
+
+{% block headerTitle %}{{ item.name }}{% endblock %}
+
+{% block content %}
+{% set status = (item.status ?: 'UNKNOWN')|upper %}
+{% set statusClass = status == 'APPROVED' ? 'success' : (status == 'PENDING' or status == 'IN_APPEAL' ? 'warning' : (status == 'REJECTED' ? 'danger' : 'default')) %}
+
+<div class="box-layout">
+    <div class="col-md-8 bg-white height-auto">
+        <div class="pa-md">
+            <p>
+                <a href="{{ path('mautic_evolution_meta_template_index') }}">
+                    &larr; {{ 'mautic.evolution.meta_template.back_to_list'|trans }}
+                </a>
+            </p>
+
+            <div class="panel panel-default">
+                <div class="panel-heading">
+                    <h3 class="panel-title">{{ 'mautic.evolution.meta_template.details'|trans }}</h3>
+                </div>
+                <div class="panel-body">
+                    <dl class="dl-horizontal">
+                        <dt>{{ 'mautic.evolution.template.name'|trans }}</dt>
+                        <dd>{{ item.name }}</dd>
+                        <dt>{{ 'mautic.evolution.meta_template.language'|trans }}</dt>
+                        <dd>{{ item.language ?: '-' }}</dd>
+                        <dt>{{ 'mautic.evolution.meta_template.category'|trans }}</dt>
+                        <dd>{{ item.categoryType ?: '-' }}</dd>
+                        <dt>{{ 'mautic.evolution.meta_template.status'|trans }}</dt>
+                        <dd><span class="label label-{{ statusClass }}">{{ status }}</span></dd>
+                        {% if item.evolutionId %}
+                            <dt>{{ 'mautic.evolution.meta_template.evolution_id'|trans }}</dt>
+                            <dd>{{ item.evolutionId }}</dd>
+                        {% endif %}
+                    </dl>
+                </div>
+            </div>
+
+            {{ include('@MauticEvolution/Stats/funnel.html.twig', {'stats': stats|default({})}) }}
+
+            <div class="panel panel-default">
+                <div class="panel-heading">
+                    <h3 class="panel-title">{{ 'mautic.evolution.meta_template.section.body'|trans }}</h3>
+                </div>
+                <div class="panel-body">
+                    <div class="well">
+                        {% if item.content %}
+                            {{ item.content|nl2br }}
+                        {% else %}
+                            <em>{{ 'mautic.evolution.meta_template.no_body'|trans }}</em>
+                        {% endif %}
+                    </div>
+
+                    {% if item.components %}
+                        <h4>{{ 'mautic.evolution.meta_template.components'|trans }}</h4>
+                        {% for component in item.components %}
+                            <div class="well well-sm">
+                                <strong>{{ component.type|default('?') }}</strong>
+                                {% if component.format is defined %}
+                                    <span class="text-muted">({{ component.format }})</span>
+                                {% endif %}
+                                {% if component.text is defined %}
+                                    <div>{{ component.text }}</div>
+                                {% endif %}
+                                {% if component.buttons is defined %}
+                                    <ul>
+                                        {% for button in component.buttons %}
+                                            <li>{{ button.type|default('') }} — {{ button.text|default('') }}</li>
+                                        {% endfor %}
+                                    </ul>
+                                {% endif %}
+                            </div>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+            </div>
+
+            {% if permissions['evolution:templates:edit'] %}
+            <div class="panel panel-default">
+                <div class="panel-heading">
+                    <h3 class="panel-title">{{ 'mautic.evolution.meta_template.section.mapping'|trans }}</h3>
+                </div>
+                <div class="panel-body">
+                    <p class="help-block">{{ 'mautic.evolution.meta_template.form.mapping.help'|trans }}</p>
+                    {{ form_start(mapForm) }}
+                    <div class="row">
+                        {% for i in 1..10 %}
+                            <div class="col-md-3">
+                                {{ form_row(attribute(mapForm, 'paramField' ~ i)) }}
+                            </div>
+                        {% endfor %}
+                    </div>
+                    {{ form_end(mapForm) }}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    <div class="col-md-4 bg-white bdr-l height-auto">
+        <div class="pr-lg pl-lg pt-md pb-md">
+            <a href="{{ path('mautic_evolution_meta_template_sync') }}" class="btn btn-default btn-block">
+                <i class="fa fa-refresh"></i>
+                {{ 'mautic.evolution.meta_template.sync'|trans }}
+            </a>
+            {% if permissions['evolution:templates:delete'] %}
+                <a href="{{ path('mautic_evolution_meta_template_delete', {'objectId': item.id}) }}"
+                   class="btn btn-danger btn-block"
+                   onclick="return confirm('{{ 'mautic.evolution.meta_template.delete.confirm'|trans }}')">
+                    <i class="fa fa-trash"></i>
+                    {{ 'mautic.evolution.meta_template.delete'|trans }}
+                </a>
+            {% endif %}
+            <hr>
+            <p class="text-muted">{{ 'mautic.evolution.meta_template.help.approval'|trans }}</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

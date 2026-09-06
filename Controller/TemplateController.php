@@ -6,7 +6,9 @@ namespace MauticPlugin\MauticEvolutionBundle\Controller;
 
 use Doctrine\Persistence\ManagerRegistry;
 use MauticPlugin\MauticEvolutionBundle\Entity\EvolutionTemplate;
+use MauticPlugin\MauticEvolutionBundle\Model\MessageModel;
 use MauticPlugin\MauticEvolutionBundle\Model\TemplateModel;
+use MauticPlugin\MauticEvolutionBundle\Service\TemplateSyncService;
 use Mautic\CoreBundle\Controller\FormController;
 use Mautic\CoreBundle\Factory\ModelFactory;
 use Mautic\CoreBundle\Helper\CoreParametersHelper;
@@ -54,6 +56,28 @@ class TemplateController extends FormController
         );
 
         parent::__construct($formFactory, $fieldHelper, $doctrine, $modelFactory, $userHelper, $coreParametersHelper, $dispatcher, $translator, $flashBag, $requestStack, $security);
+    }
+
+    /**
+     * @param array<string, mixed> $args
+     *
+     * @return array<string, mixed>
+     */
+    protected function getViewArguments(array $args, $action): array
+    {
+        $args = parent::getViewArguments($args, $action);
+        $item = $args['viewParameters']['item'] ?? ($args['item'] ?? null);
+        if ($action === 'view' && $item instanceof EvolutionTemplate) {
+            /** @var MessageModel $messageModel */
+            $messageModel = $this->getModel('evolution.message');
+            if (isset($args['viewParameters'])) {
+                $args['viewParameters']['stats'] = $messageModel->getTemplateStats($item);
+            } else {
+                $args['stats'] = $messageModel->getTemplateStats($item);
+            }
+        }
+
+        return $args;
     }
 
     /**
@@ -150,5 +174,16 @@ class TemplateController extends FormController
         return $this->render('@MauticEvolution/Template/preview.html.twig', [
             'template' => $entity,
         ]);
+    }
+
+    public function syncAction(TemplateSyncService $syncService): JsonResponse
+    {
+        if (!$this->security->isGranted('evolution:templates:create')) {
+            return new JsonResponse(['success' => false, 'message' => 'Access denied'], Response::HTTP_FORBIDDEN);
+        }
+
+        $result = $syncService->syncFromApi();
+
+        return new JsonResponse($result, !empty($result['success']) ? Response::HTTP_OK : Response::HTTP_BAD_REQUEST);
     }
 }

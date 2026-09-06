@@ -1,0 +1,21 @@
+{% block evolution_send_media_action_widget %}
+    <div class="evolution-send-media-widget">
+        {% if form.group_alias is defined %}
+            <div class="form-group">
+                {{ form_row(form.group_alias) }}
+            </div>
+        {% endif %}
+        <div class="form-group">
+            {{ form_row(form.media_url) }}
+        </div>
+        <div class="form-group">
+            {{ form_row(form.media_type) }}
+        </div>
+        <div class="form-group">
+            {{ form_row(form.caption) }}
+        </div>
+        <div class="form-group">
+            {{ form_row(form.phone_field) }}
+        </div>
+    </div>
+{% endblock %}

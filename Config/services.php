@@ -14,7 +14,7 @@ return function (ContainerConfigurator $configurator): void {
 
     // Auto-load bundle classes, but exclude Models to define them explicitly with correct arguments
     $services->load('MauticPlugin\\MauticEvolutionBundle\\', '../')
-        ->exclude('../{Config,Resources,Model,composer.json,MauticEvolutionBundle.php,README.md}');
+        ->exclude('../{Config,Resources,Tests,Controller/ConfigController.php,composer.json,MauticEvolutionBundle.php,README.md}');
 
     // Evolution API service
     $services->set(MauticPlugin\MauticEvolutionBundle\Service\EvolutionApiService::class)
@@ -74,5 +74,20 @@ return function (ContainerConfigurator $configurator): void {
         ->args([
             service('mautic.evolution.service.evolution_api'),
         ])
+        ->tag('form.type');
+
+        $services->set(MauticPlugin\MauticEvolutionBundle\Form\Type\SendMediaActionType::class)
+        ->public()
+        ->args([
+            service('mautic.evolution.service.evolution_api'),
+        ])
+        ->tag('form.type');
+
+    $services->set(MauticPlugin\MauticEvolutionBundle\Form\Type\MetaBusinessTemplateType::class)
+        ->public()
+        ->tag('form.type');
+
+    $services->set(MauticPlugin\MauticEvolutionBundle\Form\Type\MetaTemplateMappingType::class)
+        ->public()
         ->tag('form.type');
 };

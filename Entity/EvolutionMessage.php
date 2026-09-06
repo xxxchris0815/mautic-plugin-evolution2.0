@@ -117,6 +117,51 @@ class EvolutionMessage extends CommonEntity
     #[ORM\Column(name: 'metadata', type: 'json', nullable: true)]
     protected ?array $metadata = null;
 
+    /**
+     * @var int|null
+     */
+    protected ?int $campaignId = null;
+
+    /**
+     * @var int|null
+     */
+    protected ?int $campaignEventId = null;
+
+    /**
+     * @var int|null
+     */
+    protected ?int $campaignEventLogId = null;
+
+    /**
+     * @var string|null
+     */
+    protected ?string $messageType = 'text';
+
+    /**
+     * @var string|null
+     */
+    protected ?string $instance = null;
+
+    /**
+     * @var int|null
+     */
+    protected ?int $templateId = null;
+
+    /**
+     * @var string|null
+     */
+    protected ?string $templateLanguage = null;
+
+    /**
+     * @var string|null
+     */
+    protected ?string $templateSource = null;
+
+    /**
+     * @var \DateTime|null
+     */
+    protected ?\DateTime $repliedAt = null;
+
     public function getId(): ?int
     {
         return $this->id;
@@ -293,6 +338,105 @@ class EvolutionMessage extends CommonEntity
         return $this;
     }
 
+    public function getCampaignId(): ?int
+    {
+        return $this->campaignId;
+    }
+
+    public function setCampaignId(?int $campaignId): self
+    {
+        $this->campaignId = $campaignId;
+        return $this;
+    }
+
+    public function getCampaignEventId(): ?int
+    {
+        return $this->campaignEventId;
+    }
+
+    public function setCampaignEventId(?int $campaignEventId): self
+    {
+        $this->campaignEventId = $campaignEventId;
+        return $this;
+    }
+
+    public function getCampaignEventLogId(): ?int
+    {
+        return $this->campaignEventLogId;
+    }
+
+    public function setCampaignEventLogId(?int $campaignEventLogId): self
+    {
+        $this->campaignEventLogId = $campaignEventLogId;
+        return $this;
+    }
+
+    public function getMessageType(): ?string
+    {
+        return $this->messageType;
+    }
+
+    public function setMessageType(?string $messageType): self
+    {
+        $this->messageType = $messageType;
+        return $this;
+    }
+
+    public function getInstance(): ?string
+    {
+        return $this->instance;
+    }
+
+    public function setInstance(?string $instance): self
+    {
+        $this->instance = $instance;
+        return $this;
+    }
+
+    public function getTemplateId(): ?int
+    {
+        return $this->templateId;
+    }
+
+    public function setTemplateId(?int $templateId): self
+    {
+        $this->templateId = $templateId;
+        return $this;
+    }
+
+    public function getTemplateLanguage(): ?string
+    {
+        return $this->templateLanguage;
+    }
+
+    public function setTemplateLanguage(?string $templateLanguage): self
+    {
+        $this->templateLanguage = $templateLanguage;
+        return $this;
+    }
+
+    public function getTemplateSource(): ?string
+    {
+        return $this->templateSource;
+    }
+
+    public function setTemplateSource(?string $templateSource): self
+    {
+        $this->templateSource = $templateSource;
+        return $this;
+    }
+
+    public function getRepliedAt(): ?\DateTime
+    {
+        return $this->repliedAt;
+    }
+
+    public function setRepliedAt(?\DateTime $repliedAt): self
+    {
+        $this->repliedAt = $repliedAt;
+        return $this;
+    }
+
     /**
      * Configura os metadados da entidade
      */
@@ -372,6 +516,61 @@ class EvolutionMessage extends CommonEntity
         $builder->createField('metadata', Types::JSON)
             ->nullable()
             ->build();
+
+        $builder->createField('campaignId', Types::INTEGER)
+            ->columnName('campaign_id')
+            ->nullable()
+            ->build();
+
+        $builder->createField('campaignEventId', Types::INTEGER)
+            ->columnName('campaign_event_id')
+            ->nullable()
+            ->build();
+
+        $builder->createField('campaignEventLogId', Types::INTEGER)
+            ->columnName('campaign_event_log_id')
+            ->nullable()
+            ->build();
+
+        $builder->createField('messageType', Types::STRING)
+            ->columnName('message_type')
+            ->length(30)
+            ->nullable()
+            ->build();
+
+        $builder->createField('instance', Types::STRING)
+            ->length(100)
+            ->nullable()
+            ->build();
+
+        $builder->createField('templateId', Types::INTEGER)
+            ->columnName('template_id')
+            ->nullable()
+            ->build();
+
+        $builder->createField('templateLanguage', Types::STRING)
+            ->columnName('template_language')
+            ->length(20)
+            ->nullable()
+            ->build();
+
+        $builder->createField('templateSource', Types::STRING)
+            ->columnName('template_source')
+            ->length(20)
+            ->nullable()
+            ->build();
+
+        $builder->createField('repliedAt', Types::DATETIME_MUTABLE)
+            ->columnName('replied_at')
+            ->nullable()
+            ->build();
+
+        $builder->addIndex(['message_id'], 'evolution_message_id');
+        $builder->addIndex(['campaign_event_id'], 'evolution_campaign_event');
+        $builder->addIndex(['campaign_id'], 'evolution_campaign_id');
+        $builder->addIndex(['status'], 'evolution_message_status');
+        $builder->addIndex(['template_id'], 'evolution_message_template_id');
+        $builder->addIndex(['template_name'], 'evolution_message_template_name');
 
         $builder->addDateAdded();
     }

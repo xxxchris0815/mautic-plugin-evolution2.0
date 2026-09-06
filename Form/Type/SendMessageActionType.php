@@ -49,20 +49,15 @@ class SendMessageActionType extends AbstractType
         $builder
             ->add('group_alias', ChoiceType::class, [
                 'label' => 'mautic.evolution.campaign.action.group.label',
-                'label_attr' => ['class' => 'control-label required'],
+                'label_attr' => ['class' => 'control-label'],
                 'attr' => [
                     'class' => 'form-control',
                     'tooltip' => 'mautic.evolution.campaign.action.group.tooltip',
                     'data-groups-error' => $groupsError ? '1' : '0',
                 ],
-                'placeholder' => 'mautic.evolution.campaign.action.group.placeholder',
+                'placeholder' => 'mautic.evolution.campaign.action.group.none',
                 'choices' => $groupChoices,
-                'required' => true,
-                'constraints' => [
-                    new Assert\NotBlank([
-                        'message' => 'mautic.evolution.campaign.action.group.notblank',
-                    ]),
-                ],
+                'required' => false,
                 'help' => 'mautic.evolution.campaign.action.group.help',
             ])
             ->add('message', TextareaType::class, [

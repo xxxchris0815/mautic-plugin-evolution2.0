@@ -2,10 +2,14 @@
 
 declare(strict_types=1);
 
+use MauticPlugin\MauticEvolutionBundle\Entity\EvolutionTemplate;
+use MauticPlugin\MauticEvolutionBundle\Integration\MauticEvolutionIntegration;
+use MauticPlugin\MauticEvolutionBundle\Security\Permissions\EvolutionPermissions;
+
 return [
     'name'        => 'Evolution Bundle',
-    'description' => 'Provides evolution templates functionality for Mautic.',
-    'version'     => '1.0',
+    'description' => 'WhatsApp messaging via Evolution API with templates, campaign tracking and reporting.',
+    'version'     => '2.0.0',
     'author'      => 'Evolution Team',
 
     'routes' => [
@@ -38,6 +42,40 @@ return [
                 'path'       => '/evolution/templates/preview/{objectId}',
                 'controller' => 'MauticPlugin\MauticEvolutionBundle\Controller\TemplateController::previewAction',
             ],
+            'mautic_evolution_template_sync' => [
+                'path'       => '/evolution/templates/sync',
+                'controller' => 'MauticPlugin\MauticEvolutionBundle\Controller\TemplateController::syncAction',
+                'method'     => 'POST',
+            ],
+            'mautic_evolution_meta_template_sync' => [
+                'path'       => '/evolution/business-templates/sync',
+                'controller' => 'MauticPlugin\MauticEvolutionBundle\Controller\MetaTemplateController::syncAction',
+            ],
+            'mautic_evolution_meta_template_new' => [
+                'path'       => '/evolution/business-templates/new',
+                'controller' => 'MauticPlugin\MauticEvolutionBundle\Controller\MetaTemplateController::newAction',
+            ],
+            'mautic_evolution_meta_template_view' => [
+                'path'       => '/evolution/business-templates/view/{objectId}',
+                'controller' => 'MauticPlugin\MauticEvolutionBundle\Controller\MetaTemplateController::viewAction',
+                'requirements' => ['objectId' => '\d+'],
+            ],
+            'mautic_evolution_meta_template_map' => [
+                'path'       => '/evolution/business-templates/map/{objectId}',
+                'controller' => 'MauticPlugin\MauticEvolutionBundle\Controller\MetaTemplateController::mapAction',
+                'requirements' => ['objectId' => '\d+'],
+            ],
+            'mautic_evolution_meta_template_delete' => [
+                'path'       => '/evolution/business-templates/delete/{objectId}',
+                'controller' => 'MauticPlugin\MauticEvolutionBundle\Controller\MetaTemplateController::deleteAction',
+                'requirements' => ['objectId' => '\d+'],
+            ],
+            'mautic_evolution_meta_template_index' => [
+                'path'       => '/evolution/business-templates/{page}',
+                'controller' => 'MauticPlugin\MauticEvolutionBundle\Controller\MetaTemplateController::indexAction',
+                'defaults'   => ['page' => 1],
+                'requirements' => ['page' => '\d+'],
+            ],
         ],
         'public' => [
             'mautic_evolution_webhook_receive' => [
@@ -52,61 +90,26 @@ return [
     ],
 
     'services' => [
-        'models' => [
-            'mautic.evolution.model.template' => [
-                'class' => 'MauticPlugin\MauticEvolutionBundle\Model\TemplateModel',
+        'integrations' => [
+            'mautic.integration.mauticevolution' => [
+                'class'     => MauticEvolutionIntegration::class,
                 'arguments' => [
-                    'doctrine.orm.entity_manager',
-                    'mautic.security',
                     'event_dispatcher',
+                    'mautic.helper.cache_storage',
+                    'doctrine.orm.entity_manager',
+                    'request_stack',
                     'router',
                     'translator',
-                    'mautic.helper.user',
                     'monolog.logger.mautic',
-                    'mautic.helper.core_parameters',
-                ],
-            ],
-        ],
-        'other' => [
-            'mautic.evolution.helper.template' => [
-                'class' => 'MauticPlugin\MauticEvolutionBundle\Helper\TemplateHelper',
-                'arguments' => [
-                    'mautic.evolution.model.template',
-                    'twig',
-                ],
-            ],
-        ],
-        'event_subscribers' => [
-            'mautic.evolution.plugin.subscriber' => [
-                'class' => 'MauticPlugin\MauticEvolutionBundle\EventListener\PluginSubscriber',
-                'arguments' => [
-                    'doctrine.orm.entity_manager',
-                    '@Mautic\PluginBundle\Bundle\PluginDatabase',
-                ],
-            ],
-        ],
-        'integrations' => [
-            // Serviço de integração do MauticEvolution
-            'mautic.integration.mauticevolution' => [
-                'class'     => MauticPlugin\MauticEvolutionBundle\Integration\MauticEvolutionIntegration::class, // Classe do serviço
-                'arguments' => [
-                    // Lista de dependências que serão injetadas no construtor da classe
-                    'event_dispatcher',                                         // Para disparar eventos
-                    'mautic.helper.cache_storage',                             // Para cache
-                    'doctrine.orm.entity_manager',                             // Para banco de dados
-                    'request_stack',                                           // Para acessar dados da requisição HTTP
-                    'router',                                                  // Para gerar URLs
-                    'translator',                                              // Para tradução de textos
-                    'monolog.logger.mautic',                                   // Para logs
-                    'mautic.helper.encryption',                                // Para criptografia
-                    'mautic.lead.model.lead',                                  // Para trabalhar com contatos
-                    'mautic.lead.model.company',                               // Para trabalhar com empresas
-                    'mautic.helper.paths',                                     // Para caminhos de arquivos
-                    'mautic.core.model.notification',                          // Para notificações
-                    'mautic.lead.model.field',                                 // Para campos customizados
-                    'mautic.plugin.model.integration_entity',                  // Para entidades de integração
-                    'mautic.lead.model.dnc',                                   // Para lista de não contatar
-                    'mautic.lead.field.fields_with_unique_identifier',         // Para campos únicos
+                    'mautic.helper.encryption',
+                    'mautic.lead.model.lead',
+                    'mautic.lead.model.company',
+                    'mautic.helper.paths',
+                    'mautic.core.model.notification',
+                    'mautic.lead.model.field',
+                    'mautic.plugin.model.integration_entity',
+                    'mautic.lead.model.dnc',
+                    'mautic.lead.field.fields_with_unique_identifier',
                 ],
             ],
         ],
@@ -121,13 +124,26 @@ return [
                 'priority'  => 100,
                 'id'        => 'mautic_evolution_templates',
             ],
+            'mautic.evolution.meta_templates' => [
+                'route'     => 'mautic_evolution_meta_template_index',
+                'access'    => 'evolution:templates:view',
+                'parent'    => 'mautic.core.channels',
+                'priority'  => 99,
+                'id'        => 'mautic_evolution_meta_templates',
+            ],
         ],
     ],
 
     'categories' => [
         'plugin:evolution' => [
             'label' => 'mautic.evolution.templates',
-            'class' => 'MauticPlugin\MauticEvolutionBundle\Entity\Template',
+            'class' => EvolutionTemplate::class,
+        ],
+    ],
+
+    'permissions' => [
+        'evolution' => [
+            'class' => EvolutionPermissions::class,
         ],
     ],
 ];

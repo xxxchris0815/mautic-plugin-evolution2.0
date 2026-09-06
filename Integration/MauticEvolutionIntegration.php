@@ -188,6 +188,55 @@ class MauticEvolutionIntegration extends AbstractIntegration
     {
         if ('features' === $formArea) {
             $builder->add(
+                'evolution_instance',
+                \Symfony\Component\Form\Extension\Core\Type\TextType::class,
+                [
+                    'label' => 'mautic.evolution.config.instance',
+                    'label_attr' => ['class' => 'control-label'],
+                    'attr' => [
+                        'class' => 'form-control',
+                        'tooltip' => 'mautic.evolution.help.instance',
+                    ],
+                    'data' => $data['evolution_instance'] ?? 'default',
+                    'required' => false,
+                ]
+            );
+            $builder->add(
+                'evolution_timeout',
+                \Symfony\Component\Form\Extension\Core\Type\NumberType::class,
+                [
+                    'label' => 'mautic.evolution.config.timeout',
+                    'label_attr' => ['class' => 'control-label'],
+                    'attr' => ['class' => 'form-control'],
+                    'data' => $data['evolution_timeout'] ?? 30,
+                    'required' => false,
+                ]
+            );
+            $builder->add(
+                'evolution_country_code',
+                \Symfony\Component\Form\Extension\Core\Type\TextType::class,
+                [
+                    'label' => 'mautic.evolution.config.country_code',
+                    'label_attr' => ['class' => 'control-label'],
+                    'attr' => [
+                        'class' => 'form-control',
+                        'tooltip' => 'mautic.evolution.help.country_code',
+                    ],
+                    'data' => $data['evolution_country_code'] ?? '55',
+                    'required' => false,
+                ]
+            );
+            $builder->add(
+                'evolution_webhook_enabled',
+                YesNoButtonGroupType::class,
+                [
+                    'label' => 'mautic.evolution.config.webhook_enabled',
+                    'label_attr' => ['class' => 'control-label'],
+                    'data' => isset($data['evolution_webhook_enabled']) ? (bool) $data['evolution_webhook_enabled'] : true,
+                    'required' => false,
+                ]
+            );
+            $builder->add(
                 'check_whatsapp_on_save',
                 YesNoButtonGroupType::class,
                 [

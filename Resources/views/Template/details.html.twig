@@ -51,6 +51,7 @@
 
             <!-- template details -->
             <div class="pa-md">
+                {{ include('@MauticEvolution/Stats/funnel.html.twig', {'stats': stats|default({})}) }}
                 <div class="row">
                     <div class="col-md-12">
                         <div class="panel">

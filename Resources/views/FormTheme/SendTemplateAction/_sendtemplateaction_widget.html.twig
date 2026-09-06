@@ -5,12 +5,8 @@
             {{ form_widget(form.group_alias, {'attr': {'class': 'form-control'}}) }}
             {{ form_errors(form.group_alias) }}
             {% if form.group_alias.vars.attr['data-groups-error'] == '1' %}
-                <div class="alert alert-danger" role="alert" style="margin-top:8px;">
-                    {{ 'mautic.evolution.campaign.action.group.load_error'|trans }}
-                </div>
-            {% elseif form.group_alias.vars.choices is empty %}
                 <div class="alert alert-warning" role="alert" style="margin-top:8px;">
-                    {{ 'mautic.evolution.campaign.action.group.no_enabled'|trans }}
+                    {{ 'mautic.evolution.campaign.action.group.load_error'|trans }}
                 </div>
             {% endif %}
             <div class="help-block">
@@ -66,5 +62,17 @@
                 </small>
             </div>
         </div>
+
+        {% if form.body_parameters is defined %}
+        <div class="form-group">
+            {{ form_row(form.body_parameters) }}
+            <div class="help-block">
+                <small>
+                    <i class="fa fa-info-circle"></i>
+                    {{ 'mautic.evolution.campaign.action.body_parameters.help'|trans }}
+                </small>
+            </div>
+        </div>
+        {% endif %}
     </div>
 {% endblock %}

@@ -1,0 +1,56 @@
+{#
+  Variables:
+    - stats: funnel counts and rates from MessageStatsCalculator
+#}
+{% set stats = stats|default({
+    accepted: 0,
+    reached: 0,
+    read: 0,
+    replied: 0,
+    failed: 0,
+    pending: 0,
+    delivery_rate: 0,
+    read_rate: 0,
+    reply_rate: 0,
+    fail_rate: 0
+}) %}
+<div class="panel panel-default">
+    <div class="panel-heading">
+        <h3 class="panel-title">{{ 'mautic.evolution.stats.funnel'|trans }}</h3>
+    </div>
+    <div class="panel-body">
+        <div class="row text-center">
+            <div class="col-xs-6 col-md-3">
+                <div class="text-muted small">{{ 'mautic.evolution.stats.sent'|trans }}</div>
+                <strong>{{ stats.accepted }}</strong>
+            </div>
+            <div class="col-xs-6 col-md-3">
+                <div class="text-muted small">{{ 'mautic.evolution.stats.delivered'|trans }}</div>
+                <strong>{{ stats.reached }}</strong>
+                <div class="small">{{ stats.delivery_rate }}%</div>
+            </div>
+            <div class="col-xs-6 col-md-3">
+                <div class="text-muted small">{{ 'mautic.evolution.stats.read'|trans }}</div>
+                <strong>{{ stats.read }}</strong>
+                <div class="small">{{ stats.read_rate }}%</div>
+            </div>
+            <div class="col-xs-6 col-md-3">
+                <div class="text-muted small">{{ 'mautic.evolution.stats.replied'|trans }}</div>
+                <strong>{{ stats.replied }}</strong>
+                <div class="small">{{ stats.reply_rate }}%</div>
+            </div>
+        </div>
+        {% if stats.failed > 0 or stats.pending > 0 %}
+            <hr>
+            <div class="row text-center">
+                <div class="col-xs-6">
+                    <span class="text-danger">{{ 'mautic.evolution.stats.failed'|trans }}: {{ stats.failed }} ({{ stats.fail_rate }}%)</span>
+                </div>
+                <div class="col-xs-6">
+                    <span class="text-muted">{{ 'mautic.evolution.stats.pending'|trans }}: {{ stats.pending }}</span>
+                </div>
+            </div>
+        {% endif %}
+        <p class="help-block mt-sm mb-0">{{ 'mautic.evolution.stats.funnel.help'|trans }}</p>
+    </div>
+</div>

@@ -82,6 +82,7 @@ class EvolutionTemplateType extends AbstractType
                     'mautic.evolution.template.type.text' => 'text',
                     'mautic.evolution.template.type.media' => 'media',
                     'mautic.evolution.template.type.interactive' => 'interactive',
+                    'mautic.evolution.template.type.template' => 'template',
                 ],
                 'placeholder' => 'mautic.evolution.template.form.type.placeholder',
                 'constraints' => [
@@ -99,6 +100,66 @@ class EvolutionTemplateType extends AbstractType
                 'required' => false,
                 'data' => true,
             ])
+            ->add('source', ChoiceType::class, [
+                'label' => 'mautic.evolution.template.form.source',
+                'label_attr' => ['class' => 'control-label'],
+                'attr' => ['class' => 'form-control'],
+                'choices' => [
+                    'mautic.evolution.template.source.local' => 'local',
+                    'mautic.evolution.template.source.evolution' => 'evolution',
+                ],
+            ])
+            ->add('language', TextType::class, [
+                'label' => 'mautic.evolution.template.form.language',
+                'label_attr' => ['class' => 'control-label'],
+                'attr' => [
+                    'class' => 'form-control',
+                    'placeholder' => 'en_US',
+                ],
+                'required' => false,
+            ])
+            ->add('categoryType', ChoiceType::class, [
+                'label' => 'mautic.evolution.template.form.category_type',
+                'label_attr' => ['class' => 'control-label'],
+                'attr' => ['class' => 'form-control'],
+                'choices' => [
+                    'UTILITY' => 'UTILITY',
+                    'MARKETING' => 'MARKETING',
+                    'AUTHENTICATION' => 'AUTHENTICATION',
+                ],
+                'placeholder' => '',
+                'required' => false,
+            ])
+            ->add('status', TextType::class, [
+                'label' => 'mautic.evolution.template.form.status',
+                'label_attr' => ['class' => 'control-label'],
+                'attr' => ['class' => 'form-control', 'readonly' => true],
+                'required' => false,
+            ])
+            ->add(
+                $builder->create('components', TextareaType::class, [
+                    'label' => 'mautic.evolution.template.form.components',
+                    'label_attr' => ['class' => 'control-label'],
+                    'attr' => [
+                        'class' => 'form-control',
+                        'rows' => 8,
+                        'placeholder' => '[{"type":"BODY","text":"Hello {{1}}"}]',
+                    ],
+                    'required' => false,
+                ])->addViewTransformer(new JsonArrayTransformer())
+            )
+            ->add(
+                $builder->create('parameterFields', TextareaType::class, [
+                    'label' => 'mautic.evolution.template.form.parameter_fields',
+                    'label_attr' => ['class' => 'control-label'],
+                    'attr' => [
+                        'class' => 'form-control',
+                        'rows' => 4,
+                        'placeholder' => '{"1":"{contactfield=firstname}"}',
+                    ],
+                    'required' => false,
+                ])->addViewTransformer(new JsonArrayTransformer())
+            )
             ->add(
                 $builder->create('variables', TextareaType::class, [
                     'label' => 'mautic.evolution.template.form.variables',
